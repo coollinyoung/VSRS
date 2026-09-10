@@ -35,7 +35,7 @@ namespace VSRS
             tabs.TabPages.Add(BuildCaptureTab());
             tabs.TabPages.Add(BuildDifferencingTab());
 
-            log.Dock = DockStyle.Bottom; log.Height = 155; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
+            log.Dock = DockStyle.Bottom; log.Height = 78; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
             log.ReadOnly = true; log.BackColor = Color.FromArgb(25, 25, 25); log.ForeColor = Color.Gainsboro;
             Controls.Add(tabs); Controls.Add(log);
             Shown += (s, e) => RefreshHardware();
