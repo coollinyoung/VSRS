@@ -44,13 +44,14 @@ namespace VSRS
         private TabPage BuildVentoyTab()
         {
             var page = NewPage("1. 安裝 Ventoy 到硬碟");
-            var title = AddTitle(page, "選擇 Ventoy 目標硬碟", 22);
-            diskBox = AddCombo(page, 70);
-            AddText(page, "會顯示磁碟編號、容量、USB/內接判斷與型號。請以容量及型號再次核對；此操作會清除整顆磁碟。", 112, Color.DarkRed);
-            var refresh = AddButton(page, "重新偵測磁碟", 165, 180); refresh.Click += (s, e) => RefreshHardware();
-            allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（Ventoy /NOUSBCheck）", Left = 28, Top = 212, Width = 520, Height = 30 };
-            page.Controls.Add(allowInternal);
-            installButton = AddButton(page, "安裝 Ventoy（危險操作）", 255, 260); installButton.BackColor = Color.MistyRose;
+            var content = AddContentPanel(page);
+            AddTitle(content, "選擇 Ventoy 目標硬碟");
+            diskBox = AddCombo(content);
+            AddText(content, "會顯示磁碟編號、容量、USB/內接判斷與型號。請以容量及型號再次核對；此操作會清除整顆磁碟。", Color.DarkRed);
+            var refresh = AddButton(content, "重新偵測磁碟", 180); refresh.Click += (s, e) => RefreshHardware();
+            allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（Ventoy /NOUSBCheck）", AutoSize = true, Margin = new Padding(3, 8, 3, 8) };
+            content.Controls.Add(allowInternal);
+            installButton = AddButton(content, "安裝 Ventoy（危險操作）", 260); installButton.BackColor = Color.MistyRose;
             installButton.Click += async (s, e) => await InstallVentoyAsync();
             return page;
         }
@@ -58,12 +59,13 @@ namespace VSRS
         private TabPage BuildCaptureTab()
         {
             var page = NewPage("2. Windows 磁區轉 VHDX");
-            AddTitle(page, "選擇包含 Windows 的來源磁區", 22);
-            volumeBox = AddCombo(page, 70);
-            AddText(page, "程式會優先標示含有 Windows\\System32 的磁區。WinPE 中原本的 C: 可能會變成 D: 或其他代號，請不要只看磁碟代號。", 112, Color.DarkBlue);
-            AddText(page, "輸出 VHDX：", 177);
-            vhdOutput = AddPathBox(page, 210, true, "VHDX 檔案|*.vhdx");
-            captureButton = AddButton(page, "開始建立 VHDX", 265, 220);
+            var content = AddContentPanel(page);
+            AddTitle(content, "選擇包含 Windows 的來源磁區");
+            volumeBox = AddCombo(content);
+            AddText(content, "程式會優先標示含有 Windows\\System32 的磁區。WinPE 中原本的 C: 可能會變成 D: 或其他代號，請不要只看磁碟代號。", Color.DarkBlue);
+            AddText(content, "輸出 VHDX：");
+            vhdOutput = AddPathBox(content, true, "VHDX 檔案|*.vhdx");
+            captureButton = AddButton(content, "開始建立 VHDX", 220);
             captureButton.Click += async (s, e) => await CaptureAsync();
             return page;
         }
@@ -71,15 +73,16 @@ namespace VSRS
         private TabPage BuildDifferencingTab()
         {
             var page = NewPage("3. 差分建立與合併");
-            AddTitle(page, "建立差分 VHDX", 18);
-            AddText(page, "父 VHDX（唯讀基底）：", 62); parentVhd = AddPathBox(page, 92, false, "VHDX 檔案|*.vhdx");
-            AddText(page, "新差分 VHDX：", 137); childVhd = AddPathBox(page, 167, true, "VHDX 檔案|*.vhdx");
-            createDiffButton = AddButton(page, "建立差分磁碟", 214, 200); createDiffButton.Click += async (s, e) => await CreateDiffAsync();
-            AddText(page, "────────────────────────────────────────────────────────────────", 266, Color.Gray);
-            AddTitle(page, "合併差分 VHDX 回上一層父磁碟", 297);
-            AddText(page, "要合併的子 VHDX：", 342); mergeVhd = AddPathBox(page, 372, false, "VHDX 檔案|*.vhdx");
-            AddText(page, "合併會修改父 VHDX，且不可取消。請先備份父磁碟與子磁碟。", 417, Color.DarkRed);
-            mergeButton = AddButton(page, "合併到父磁碟（危險操作）", 459, 270); mergeButton.BackColor = Color.MistyRose;
+            var content = AddContentPanel(page);
+            AddTitle(content, "建立差分 VHDX");
+            AddText(content, "父 VHDX（唯讀基底）："); parentVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
+            AddText(content, "新差分 VHDX："); childVhd = AddPathBox(content, true, "VHDX 檔案|*.vhdx");
+            createDiffButton = AddButton(content, "建立差分磁碟", 200); createDiffButton.Click += async (s, e) => await CreateDiffAsync();
+            AddSeparator(content);
+            AddTitle(content, "合併差分 VHDX 回上一層父磁碟");
+            AddText(content, "要合併的子 VHDX："); mergeVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
+            AddText(content, "合併會修改父 VHDX，且不可取消。請先備份父磁碟與子磁碟。", Color.DarkRed);
+            mergeButton = AddButton(content, "合併到父磁碟（危險操作）", 270); mergeButton.BackColor = Color.MistyRose;
             mergeButton.Click += async (s, e) => await MergeAsync();
             return page;
         }
@@ -147,68 +150,116 @@ namespace VSRS
         private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-        private static TabPage NewPage(string text) => new TabPage(text) {
-            AutoScroll = true,
-            AutoScrollMinSize = new Size(680, 545),
-            Padding = new Padding(16),
-            UseVisualStyleBackColor = true
-        };
+        private static TabPage NewPage(string text) => new TabPage(text) { Padding = new Padding(0), UseVisualStyleBackColor = true };
 
-        private static Label AddTitle(Control p, string text, int y)
+        private static FlowLayoutPanel AddContentPanel(TabPage page)
         {
-            var c = new Label {
-                Text = text, Left = 24, Top = y, Width = 850, Height = 38,
-                AutoEllipsis = false, Font = new Font("Microsoft JhengHei UI", 15F, FontStyle.Bold),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            var panel = new FlowLayoutPanel {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Padding = new Padding(28, 22, 28, 22)
             };
-            p.Controls.Add(c); ResizeWideControl(p, c, 24); return c;
+            page.Controls.Add(panel);
+            panel.ClientSizeChanged += (s, e) => ResizeFlowChildren(panel);
+            return panel;
         }
 
-        private static Label AddText(Control p, string text, int y, Color? color = null)
+        private static Label AddTitle(FlowLayoutPanel p, string text)
         {
             var c = new Label {
-                Text = text, Left = 28, Top = y, Width = 850, Height = 50,
-                AutoEllipsis = false, ForeColor = color ?? Color.Black,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Text = text,
+                AutoSize = true,
+                Font = new Font("Microsoft JhengHei UI", 15F, FontStyle.Bold),
+                Margin = new Padding(3, 4, 3, 14)
             };
-            p.Controls.Add(c); ResizeWideControl(p, c, 28); return c;
+            p.Controls.Add(c);
+            return c;
         }
 
-        private static ComboBox AddCombo(Control p, int y)
+        private static Label AddText(FlowLayoutPanel p, string text, Color? color = null)
+        {
+            var c = new Label {
+                Text = text,
+                AutoSize = true,
+                MaximumSize = new Size(1000, 0),
+                ForeColor = color ?? Color.Black,
+                Margin = new Padding(3, 5, 3, 10)
+            };
+            p.Controls.Add(c);
+            ResizeFlowChildren(p);
+            return c;
+        }
+
+        private static ComboBox AddCombo(FlowLayoutPanel p)
         {
             var c = new ComboBox {
-                Left = 28, Top = y, Width = 850, Height = 34,
+                Width = 850,
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                IntegralHeight = false, DropDownHeight = 240,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                IntegralHeight = false,
+                DropDownHeight = 240,
+                Margin = new Padding(3, 0, 3, 12)
             };
-            p.Controls.Add(c); ResizeWideControl(p, c, 28); return c;
+            p.Controls.Add(c);
+            ResizeFlowChildren(p);
+            return c;
         }
-        private static Button AddButton(Control p, string text, int y, int width) { var c = new Button { Text = text, Left = 28, Top = y, Width = width, Height = 38 }; p.Controls.Add(c); return c; }
-        private static TextBox AddPathBox(Control p, int y, bool save, string filter)
+
+        private static Button AddButton(FlowLayoutPanel p, string text, int width)
         {
-            var box = new TextBox { Left = 28, Top = y, Width = 750, Height = 30, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-            var button = new Button { Text = "瀏覽…", Left = 790, Top = y - 2, Width = 88, Height = 34, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            var c = new Button {
+                Text = text,
+                Width = width,
+                Height = Math.Max(44, p.Font.Height + 24),
+                Margin = new Padding(3, 5, 3, 14),
+                AutoSize = false,
+                UseCompatibleTextRendering = true
+            };
+            p.Controls.Add(c);
+            return c;
+        }
+
+        private static TextBox AddPathBox(FlowLayoutPanel p, bool save, string filter)
+        {
+            var row = new TableLayoutPanel {
+                Width = 850,
+                Height = Math.Max(44, p.Font.Height + 24),
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(3, 0, 3, 12)
+            };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
+            var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5) };
+            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true };
             button.Click += (s, e) => {
                 if (save) { using (var d = new SaveFileDialog { Filter = filter, DefaultExt = "vhdx", AddExtension = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
                 else { using (var d = new OpenFileDialog { Filter = filter, CheckFileExists = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
             };
-            p.Controls.Add(box); p.Controls.Add(button);
-            Action resize = () => {
-                int right = Math.Max(650, p.ClientSize.Width - 28);
-                button.Left = right - button.Width;
-                box.Width = Math.Max(300, button.Left - box.Left - 12);
-            };
-            p.Resize += (s, e) => resize();
-            resize();
+            row.Controls.Add(box, 0, 0);
+            row.Controls.Add(button, 1, 0);
+            p.Controls.Add(row);
+            ResizeFlowChildren(p);
             return box;
         }
 
-        private static void ResizeWideControl(Control parent, Control child, int left)
+        private static void AddSeparator(FlowLayoutPanel p)
         {
-            Action resize = () => child.Width = Math.Max(620, parent.ClientSize.Width - left - 28);
-            parent.Resize += (s, e) => resize();
-            resize();
+            var line = new Panel { Height = 1, Width = 850, BackColor = Color.Silver, Margin = new Padding(3, 10, 3, 18) };
+            p.Controls.Add(line);
+            ResizeFlowChildren(p);
+        }
+
+        private static void ResizeFlowChildren(FlowLayoutPanel p)
+        {
+            int width = Math.Max(560, p.ClientSize.Width - p.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 8);
+            foreach (Control c in p.Controls)
+            {
+                if (c is ComboBox || c is TableLayoutPanel || (c is Panel && !(c is FlowLayoutPanel))) c.Width = width;
+                var label = c as Label;
+                if (label != null) label.MaximumSize = new Size(width, 0);
+            }
         }
     }
 
