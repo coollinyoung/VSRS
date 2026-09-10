@@ -1,0 +1,8 @@
+.vs/
+bin/
+obj/
+*.user
+*.suo
+Tools/*.exe
+Tools/Ventoy/
+publish/
