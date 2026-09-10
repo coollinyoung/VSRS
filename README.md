@@ -6,6 +6,8 @@ VSRS 是為 USBOX 7.0 / Windows PE 設計的 C# WinForms 桌面工具，提供�
 2. 選擇含 Windows 的磁區，透過 Microsoft Disk2vhd 建立 VHDX。
 3. 使用 Windows DiskPart 建立差分 VHDX，或把子 VHDX 合併回上一層父磁碟。
 
+介面支援 Windows/WinPE 高 DPI 縮放，頁籤、中文標籤、下拉欄與路徑欄會隨視窗寬度調整；較小解析度下可使用頁面捲軸。
+
 > **重要警告**：Ventoy 安裝與 VHDX 合併可能造成永久資料遺失。第一版請先用沒有重要資料的測試電腦及測試硬碟驗證，勿直接用於正式電腦。
 
 ## 系統需求
