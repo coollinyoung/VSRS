@@ -19,16 +19,23 @@ namespace VSRS
         public MainForm()
         {
             Text = "VSRS - Ventoy 單機還原系統";
-            Width = 980; Height = 720; MinimumSize = new Size(820, 600);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            Width = 1040; Height = 780; MinimumSize = new Size(760, 620);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft JhengHei UI", 10F);
 
             tabs.Dock = DockStyle.Fill;
+            // WinPE 常使用 125%～200% DPI。固定較高的頁籤標頭，避免中文字被裁切。
+            tabs.Font = new Font("Microsoft JhengHei UI", 10.5F, FontStyle.Bold);
+            tabs.SizeMode = TabSizeMode.Fixed;
+            tabs.ItemSize = new Size(220, 40);
+            tabs.Padding = new Point(14, 6);
             tabs.TabPages.Add(BuildVentoyTab());
             tabs.TabPages.Add(BuildCaptureTab());
             tabs.TabPages.Add(BuildDifferencingTab());
 
-            log.Dock = DockStyle.Bottom; log.Height = 170; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
+            log.Dock = DockStyle.Bottom; log.Height = 155; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
             log.ReadOnly = true; log.BackColor = Color.FromArgb(25, 25, 25); log.ForeColor = Color.Gainsboro;
             Controls.Add(tabs); Controls.Add(log);
             Shown += (s, e) => RefreshHardware();
@@ -140,20 +147,68 @@ namespace VSRS
         private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-        private static TabPage NewPage(string text) => new TabPage(text) { AutoScroll = true, Padding = new Padding(16) };
-        private static Label AddTitle(Control p, string text, int y) { var c = new Label { Text = text, Left = 24, Top = y, Width = 850, Height = 32, Font = new Font("Microsoft JhengHei UI", 15F, FontStyle.Bold) }; p.Controls.Add(c); return c; }
-        private static Label AddText(Control p, string text, int y, Color? color = null) { var c = new Label { Text = text, Left = 28, Top = y, Width = 850, Height = 44, ForeColor = color ?? Color.Black }; p.Controls.Add(c); return c; }
-        private static ComboBox AddCombo(Control p, int y) { var c = new ComboBox { Left = 28, Top = y, Width = 850, DropDownStyle = ComboBoxStyle.DropDownList }; p.Controls.Add(c); return c; }
+        private static TabPage NewPage(string text) => new TabPage(text) {
+            AutoScroll = true,
+            AutoScrollMinSize = new Size(680, 545),
+            Padding = new Padding(16),
+            UseVisualStyleBackColor = true
+        };
+
+        private static Label AddTitle(Control p, string text, int y)
+        {
+            var c = new Label {
+                Text = text, Left = 24, Top = y, Width = 850, Height = 38,
+                AutoEllipsis = false, Font = new Font("Microsoft JhengHei UI", 15F, FontStyle.Bold),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            p.Controls.Add(c); ResizeWideControl(p, c, 24); return c;
+        }
+
+        private static Label AddText(Control p, string text, int y, Color? color = null)
+        {
+            var c = new Label {
+                Text = text, Left = 28, Top = y, Width = 850, Height = 50,
+                AutoEllipsis = false, ForeColor = color ?? Color.Black,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            p.Controls.Add(c); ResizeWideControl(p, c, 28); return c;
+        }
+
+        private static ComboBox AddCombo(Control p, int y)
+        {
+            var c = new ComboBox {
+                Left = 28, Top = y, Width = 850, Height = 34,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                IntegralHeight = false, DropDownHeight = 240,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            p.Controls.Add(c); ResizeWideControl(p, c, 28); return c;
+        }
         private static Button AddButton(Control p, string text, int y, int width) { var c = new Button { Text = text, Left = 28, Top = y, Width = width, Height = 38 }; p.Controls.Add(c); return c; }
         private static TextBox AddPathBox(Control p, int y, bool save, string filter)
         {
-            var box = new TextBox { Left = 28, Top = y, Width = 750 };
-            var button = new Button { Text = "瀏覽…", Left = 790, Top = y - 2, Width = 88, Height = 30 };
+            var box = new TextBox { Left = 28, Top = y, Width = 750, Height = 30, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+            var button = new Button { Text = "瀏覽…", Left = 790, Top = y - 2, Width = 88, Height = 34, Anchor = AnchorStyles.Top | AnchorStyles.Right };
             button.Click += (s, e) => {
                 if (save) { using (var d = new SaveFileDialog { Filter = filter, DefaultExt = "vhdx", AddExtension = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
                 else { using (var d = new OpenFileDialog { Filter = filter, CheckFileExists = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
             };
-            p.Controls.Add(box); p.Controls.Add(button); return box;
+            p.Controls.Add(box); p.Controls.Add(button);
+            Action resize = () => {
+                int right = Math.Max(650, p.ClientSize.Width - 28);
+                button.Left = right - button.Width;
+                box.Width = Math.Max(300, button.Left - box.Left - 12);
+            };
+            p.Resize += (s, e) => resize();
+            resize();
+            return box;
+        }
+
+        private static void ResizeWideControl(Control parent, Control child, int left)
+        {
+            Action resize = () => child.Width = Math.Max(620, parent.ClientSize.Width - left - 28);
+            parent.Resize += (s, e) => resize();
+            resize();
         }
     }
 
