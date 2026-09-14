@@ -210,7 +210,50 @@ namespace VSRS
             WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
             WriteLog("實際執行檔：" + disk2vhd);
             WriteLog("實際參數：" + arguments);
-            await RunBusyAsync(() => ProcessService.RunAsync(disk2vhd, arguments, WriteLog));
+            await RunBusyAsync(async () => {
+                CommandResult result = await ProcessService.RunAsync(disk2vhd, arguments, WriteLog);
+                if (!result.Success) return result;
+
+                string actualFile = null;
+                try
+                {
+                    actualFile = Directory.EnumerateFiles(outputDirectory, "*", SearchOption.TopDirectoryOnly)
+                        .FirstOrDefault(path =>
+                            string.Equals(Path.GetFileNameWithoutExtension(path),
+                                Path.GetFileNameWithoutExtension(output), StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(Path.GetExtension(path), ".vhdx", StringComparison.OrdinalIgnoreCase));
+
+                    if (actualFile == null)
+                    {
+                        string detail = "Disk2vhd 回報成功，但輸出資料夾中找不到建立的 VHDX 檔案：\r\n" + output;
+                        WriteLog(detail);
+                        return new CommandResult { ExitCode = -2, Output = detail };
+                    }
+
+                    if (!string.Equals(actualFile, output, StringComparison.Ordinal))
+                    {
+                        string temporaryName = Path.Combine(outputDirectory,
+                            "VSRS_case_" + Guid.NewGuid().ToString("N") + ".tmp");
+                        File.Move(actualFile, temporaryName);
+                        File.Move(temporaryName, output);
+                        WriteLog("已將實際副檔名強制改為小寫 .vhdx：" + output);
+                    }
+                    else
+                    {
+                        WriteLog("輸出副檔名確認為小寫 .vhdx：" + output);
+                    }
+
+                    vhdOutput.Text = output;
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    string detail = "VHDX 已建立，但無法將副檔名正規化為小寫 .vhdx。\r\n" +
+                                    "實際檔案：" + (actualFile ?? "找不到") + "\r\n" + ex.Message;
+                    WriteLog(detail);
+                    return new CommandResult { ExitCode = -3, Output = detail };
+                }
+            });
         }
 
         private static bool TryNormalizeVhdxPath(string input, bool mustExist, out string path, out string error)
