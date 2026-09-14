@@ -86,8 +86,8 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 ### 2. Windows 磁區轉 VHDX
 
-- 程式會將具有 `Windows\System32` 的磁區標記為 `[偵測到 Windows]`。
-- WinPE 內離線 Windows 不一定是 C:，請以標記、容量及標籤判斷。
+- 程式會將具有 `Windows\System32` 的磁區標記為 `[Windows 來源，可製作 VHDX]`。
+- WinPE 內離線 Windows 不一定是 C:，請以標記、容量及標籤判斷。包含 Windows 的內接、系統或開機磁區都允許製作 VHDX，不會被鎖定。
 - 選擇輸出 VHDX 後開始建立。輸出位置不可放在來源磁區，並應保留足夠空間。
 
 ### 3. 差分與合併
