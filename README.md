@@ -88,14 +88,13 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 - 程式會將具有 `Windows\System32` 的磁區標記為 `[Windows 來源，可製作 VHDX]`。
 - WinPE 內離線 Windows 不一定是 C:，請以標記、容量及標籤判斷。包含 Windows 的內接、系統或開機磁區都允許製作 VHDX，不會被鎖定。
-- 選擇輸出 VHDX 的位置與檔名後，程式會執行 `disk2vhd64.exe 來源磁區 "完整輸出路徑\\檔名.vhdx"`。輸出磁碟應保留足夠空間。
+- 選擇輸出 VHDX 的位置與檔名後，程式會執行 `disk2vhd64.exe 來源磁區 "完整輸出路徑\\檔名.vhdx"`。完成後會檢查磁碟上的實際檔名；若 Disk2vhd 建立為大寫 `.VHDX`，程式會強制重新命名為小寫 `.vhdx`。輸出磁碟應保留足夠空間。
 
 ### 3. 差分與合併
 
 - 建立：選擇父 VHDX 與存放資料夾，不需要輸入檔名。程式固定建立兩個位階相同的單層差分檔：`基底 VHDX → temp.vhdx` 與 `基底 VHDX → temp2.vhdx`。
 - 如果指定資料夾已存在 `temp.vhdx` 或 `temp2.vhdx`，程式會停止以避免覆寫。只有 DiskPart 結束後兩個檔案都實際存在，畫面才會顯示完成。
-- 程式會逐一測試 TEMP、TMP、Windows Temp、`X:\\Windows\\Temp`、`X:\\Temp` 與程式目錄，使用第一個可寫入的位置建立 DiskPart 暫存腳本。
-- DiskPart 腳本使用 Unicode，支援中文路徑；下方紀錄框會顯示腳本位置及每一條實際執行的指令。
+- 建立差分檔改用 Windows 原生 Virtual Disk API（`virtdisk.dll`），不再使用 DiskPart 暫存腳本；可直接處理完整路徑並取得真正的 Windows 錯誤碼。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
 - 合併：選擇存在的子 VHDX 後，程式會依序執行 `select vdisk`、`detach vdisk noerr`、`merge vdisk depth=1`，把變更寫回直接父層。
 - 合併會修改父 VHDX，並可能使同一父檔的其他差分磁碟失效。執行前請關閉使用該 VHDX 的程式，並備份父、子檔案。
