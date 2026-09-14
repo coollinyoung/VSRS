@@ -98,7 +98,7 @@ namespace VSRS
             diskBox = AddCombo(content);
             AddText(content, "會顯示磁碟編號、容量、USB/內接判斷與型號。請以容量及型號再次核對；此操作會清除整顆磁碟。", Color.DarkRed);
             var refresh = AddButton(content, "重新偵測磁碟", 180); refresh.Click += (s, e) => RefreshHardware();
-            allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（Ventoy /NOUSBCheck）", AutoSize = true, Margin = new Padding(3, 8, 3, 8) };
+            allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（GPT、NTFS、NOUSBCheck）", AutoSize = true, Margin = new Padding(3, 8, 3, 8) };
             content.Controls.Add(allowInternal);
             installButton = AddButton(content, "安裝 Ventoy（危險操作）", 260); StyleDangerButton(installButton);
             installButton.Click += async (s, e) => await InstallVentoyAsync();
@@ -165,7 +165,8 @@ namespace VSRS
             string typed = Prompt.Show($"即將清除：磁碟 {disk.Number} / {disk.Model} / {disk.SizeText}\r\n請輸入磁碟編號 {disk.Number} 才能繼續：", "最後確認");
             if (typed != disk.Number.ToString()) { WriteLog("使用者取消：確認編號不符。"); return; }
             if (MessageBox.Show("整顆目標磁碟的資料都會消失。確定安裝？", "不可逆警告", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            string args = $"VTOYCLI /I /PhyDrive:{disk.Number}" + (!disk.IsUsb ? " /NOUSBCheck" : "");
+            string args = $"VTOYCLI /I /PhyDrive:{disk.Number}" + (!disk.IsUsb ? " /GPT /FS:NTFS /NOUSBCheck" : "");
+            WriteLog("Ventoy 安裝參數：" + args);
             await RunBusyAsync(() => ProcessService.RunAsync(ventoy, args, WriteLog));
         }
 
