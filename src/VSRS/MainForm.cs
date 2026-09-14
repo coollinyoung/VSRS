@@ -174,7 +174,8 @@ namespace VSRS
         {
             var volume = volumeBox.SelectedItem as VolumeInfo;
             if (volume == null || string.IsNullOrWhiteSpace(vhdOutput.Text)) { Warn("請選擇來源磁區及輸出檔案。"); return; }
-            if (!volume.HasWindows && MessageBox.Show("此磁區未偵測到 Windows\\System32，仍要繼續？", "確認來源", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            // VHDX 來源不限制是否包含 Windows；系統/開機磁區也允許進行映像建立。
+            WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
             string disk2vhd = ToolLocator.Find("disk2vhd.exe");
             if (disk2vhd == null) { Warn("找不到 disk2vhd.exe。請從 Microsoft Sysinternals 下載後放入 Tools 資料夾。"); return; }
             Directory.CreateDirectory(Path.GetDirectoryName(vhdOutput.Text));
