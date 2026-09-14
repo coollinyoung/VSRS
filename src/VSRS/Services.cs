@@ -251,10 +251,44 @@ namespace VSRS
 
         public static async Task<CommandResult> RunDiskPartAsync(IEnumerable<string> commands, Action<string> log)
         {
-            string script = Path.Combine(Path.GetTempPath(), "VSRS_" + Guid.NewGuid().ToString("N") + ".txt");
+            string tempDirectory = FindWritableTempDirectory();
+            string script = Path.Combine(tempDirectory, "VSRS_" + Guid.NewGuid().ToString("N") + ".txt");
+            log?.Invoke("DiskPart 暫存腳本：" + script);
             File.WriteAllLines(script, commands, Encoding.ASCII);
             try { return await RunAsync(Path.Combine(Environment.SystemDirectory, "diskpart.exe"), "/s \"" + script + "\"", log); }
             finally { try { File.Delete(script); } catch { } }
+        }
+
+        private static string FindWritableTempDirectory()
+        {
+            var candidates = new[] {
+                Environment.GetEnvironmentVariable("TEMP"),
+                Environment.GetEnvironmentVariable("TMP"),
+                Path.GetTempPath(),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp"),
+                @"X:\Windows\Temp",
+                @"X:\Temp",
+                AppDomain.CurrentDomain.BaseDirectory
+            };
+
+            foreach (string candidate in candidates.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string probe = null;
+                try
+                {
+                    Directory.CreateDirectory(candidate);
+                    probe = Path.Combine(candidate, "VSRS_write_" + Guid.NewGuid().ToString("N") + ".tmp");
+                    File.WriteAllText(probe, "test", Encoding.ASCII);
+                    File.Delete(probe);
+                    return candidate;
+                }
+                catch
+                {
+                    if (!string.IsNullOrWhiteSpace(probe)) { try { File.Delete(probe); } catch { } }
+                }
+            }
+
+            throw new IOException("找不到可寫入的暫存資料夾，無法建立 DiskPart 指令檔。");
         }
     }
 
