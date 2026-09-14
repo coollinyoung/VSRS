@@ -92,7 +92,7 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 ### 3. 差分與合併
 
-- 建立：選父 VHDX 與尚不存在的子 VHDX 路徑。
+- 建立：選父 VHDX 與尚不存在的子 VHDX 路徑。程式會自動尋找或建立可寫入的 PE 暫存資料夾，再產生 DiskPart 指令檔。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
 - 合併：選子 VHDX，DiskPart 的 `merge vdisk depth=1` 會把變更寫回直接父層。
 - 合併前必須確保 VHDX 未掛載、未被虛擬機使用，並先備份父、子檔案。
