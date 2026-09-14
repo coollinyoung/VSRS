@@ -9,6 +9,11 @@ namespace VSRS
 {
     internal sealed class MainForm : Form
     {
+        private static readonly Color WindowBackColor = Color.FromArgb(238, 243, 248);
+        private static readonly Color ContentBackColor = Color.FromArgb(248, 250, 252);
+        private static readonly Color TabDarkColor = Color.FromArgb(38, 52, 69);
+        private static readonly Color AccentColor = Color.FromArgb(36, 99, 155);
+        private static readonly Color TextColor = Color.FromArgb(31, 45, 61);
         private readonly TabControl tabs = new TabControl();
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
@@ -24,6 +29,7 @@ namespace VSRS
             Width = 1040; Height = 780; MinimumSize = new Size(760, 620);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft JhengHei UI", 10F);
+            BackColor = WindowBackColor;
 
             tabs.Dock = DockStyle.Fill;
             // WinPE 常使用 125%～200% DPI。固定較高的頁籤標頭，避免中文字被裁切。
@@ -31,12 +37,16 @@ namespace VSRS
             tabs.SizeMode = TabSizeMode.Fixed;
             tabs.ItemSize = new Size(220, 40);
             tabs.Padding = new Point(14, 6);
+            tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+            tabs.DrawItem += DrawTabItem;
+            tabs.SelectedIndexChanged += (s, e) => tabs.Invalidate();
             tabs.TabPages.Add(BuildVentoyTab());
             tabs.TabPages.Add(BuildCaptureTab());
             tabs.TabPages.Add(BuildDifferencingTab());
 
             log.Dock = DockStyle.Bottom; log.Height = 78; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
-            log.ReadOnly = true; log.BackColor = Color.FromArgb(25, 25, 25); log.ForeColor = Color.Gainsboro;
+            log.ReadOnly = true; log.BackColor = Color.FromArgb(24, 32, 42); log.ForeColor = Color.FromArgb(212, 223, 234);
+            log.BorderStyle = BorderStyle.FixedSingle;
             Controls.Add(tabs); Controls.Add(log);
             Shown += (s, e) => RefreshHardware();
         }
@@ -51,7 +61,7 @@ namespace VSRS
             var refresh = AddButton(content, "重新偵測磁碟", 180); refresh.Click += (s, e) => RefreshHardware();
             allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（Ventoy /NOUSBCheck）", AutoSize = true, Margin = new Padding(3, 8, 3, 8) };
             content.Controls.Add(allowInternal);
-            installButton = AddButton(content, "安裝 Ventoy（危險操作）", 260); installButton.BackColor = Color.MistyRose;
+            installButton = AddButton(content, "安裝 Ventoy（危險操作）", 260); StyleDangerButton(installButton);
             installButton.Click += async (s, e) => await InstallVentoyAsync();
             return page;
         }
@@ -82,7 +92,7 @@ namespace VSRS
             AddTitle(content, "合併差分 VHDX 回上一層父磁碟");
             AddText(content, "要合併的子 VHDX："); mergeVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
             AddText(content, "合併會修改父 VHDX，且不可取消。請先備份父磁碟與子磁碟。", Color.DarkRed);
-            mergeButton = AddButton(content, "合併到父磁碟（危險操作）", 270); mergeButton.BackColor = Color.MistyRose;
+            mergeButton = AddButton(content, "合併到父磁碟（危險操作）", 270); StyleDangerButton(mergeButton);
             mergeButton.Click += async (s, e) => await MergeAsync();
             return page;
         }
@@ -150,7 +160,23 @@ namespace VSRS
         private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-        private static TabPage NewPage(string text) => new TabPage(text) { Padding = new Padding(0), UseVisualStyleBackColor = true };
+        private void DrawTabItem(object sender, DrawItemEventArgs e)
+        {
+            bool selected = e.Index == tabs.SelectedIndex;
+            Rectangle rect = e.Bounds;
+            Color back = selected ? ContentBackColor : TabDarkColor;
+            Color fore = selected ? TextColor : Color.White;
+            using (var brush = new SolidBrush(back)) e.Graphics.FillRectangle(brush, rect);
+            if (selected)
+            {
+                using (var accent = new SolidBrush(AccentColor))
+                    e.Graphics.FillRectangle(accent, rect.Left, rect.Bottom - 4, rect.Width, 4);
+            }
+            TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, rect, fore,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
+        private static TabPage NewPage(string text) => new TabPage(text) { Padding = new Padding(0), BackColor = ContentBackColor, UseVisualStyleBackColor = false };
 
         private static FlowLayoutPanel AddContentPanel(TabPage page)
         {
@@ -159,7 +185,8 @@ namespace VSRS
                 AutoScroll = true,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                Padding = new Padding(28, 22, 28, 22)
+                Padding = new Padding(28, 22, 28, 22),
+                BackColor = ContentBackColor
             };
             page.Controls.Add(panel);
             panel.ClientSizeChanged += (s, e) => ResizeFlowChildren(panel);
@@ -172,6 +199,7 @@ namespace VSRS
                 Text = text,
                 AutoSize = true,
                 Font = new Font("Microsoft JhengHei UI", 15F, FontStyle.Bold),
+                ForeColor = TextColor,
                 Margin = new Padding(3, 4, 3, 14)
             };
             p.Controls.Add(c);
@@ -197,6 +225,9 @@ namespace VSRS
             var c = new ComboBox {
                 Width = 850,
                 DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White,
+                ForeColor = TextColor,
                 IntegralHeight = false,
                 DropDownHeight = 240,
                 Margin = new Padding(3, 0, 3, 12)
@@ -214,8 +245,13 @@ namespace VSRS
                 Height = Math.Max(44, p.Font.Height + 24),
                 Margin = new Padding(3, 5, 3, 14),
                 AutoSize = false,
-                UseCompatibleTextRendering = true
+                UseCompatibleTextRendering = true,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = AccentColor,
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
             };
+            c.FlatAppearance.BorderColor = Color.FromArgb(29, 79, 124);
             p.Controls.Add(c);
             return c;
         }
@@ -231,8 +267,9 @@ namespace VSRS
             };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
-            var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5) };
-            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true };
+            var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, ForeColor = TextColor };
+            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(226, 235, 244), ForeColor = TextColor, Cursor = Cursors.Hand };
+            button.FlatAppearance.BorderColor = Color.FromArgb(170, 187, 204);
             button.Click += (s, e) => {
                 if (save) { using (var d = new SaveFileDialog { Filter = filter, DefaultExt = "vhdx", AddExtension = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
                 else { using (var d = new OpenFileDialog { Filter = filter, CheckFileExists = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
@@ -249,6 +286,13 @@ namespace VSRS
             var line = new Panel { Height = 1, Width = 850, BackColor = Color.Silver, Margin = new Padding(3, 10, 3, 18) };
             p.Controls.Add(line);
             ResizeFlowChildren(p);
+        }
+
+        private static void StyleDangerButton(Button button)
+        {
+            button.BackColor = Color.FromArgb(253, 235, 235);
+            button.ForeColor = Color.FromArgb(166, 27, 27);
+            button.FlatAppearance.BorderColor = Color.FromArgb(220, 100, 100);
         }
 
         private static void ResizeFlowChildren(FlowLayoutPanel p)
