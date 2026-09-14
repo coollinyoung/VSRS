@@ -58,7 +58,7 @@ publish\win-x64\
       └─ ventoy\ ...（Ventoy 官方包的其餘檔案）
 ```
 
-VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。頁籤 2 固定呼叫 `disk2vhd64.exe`，避免精簡 x64 PE 因沒有 WOW64 而無法啟動 32 位元 `disk2vhd.exe`；第一次執行會加上 `-accepteula` 參數。
+VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。頁籤 2 固定呼叫 `disk2vhd64.exe`，避免精簡 x64 PE 因沒有 WOW64 而無法啟動 32 位元 `disk2vhd.exe`；程式會將所選來源磁區及完整 `.vhdx` 輸出檔名依序傳給 `disk2vhd64.exe`；EULA 使用登錄值接受，不傳入不受支援的 `-accepteula` 參數。
 
 在 USBOX WinPE 中，VSRS 固定呼叫同層的 `Ventoy2Disk_X64.exe`，不會呼叫可能在 PE 中出錯的 `Ventoy2Disk.exe`。
 
@@ -88,7 +88,7 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 - 程式會將具有 `Windows\System32` 的磁區標記為 `[Windows 來源，可製作 VHDX]`。
 - WinPE 內離線 Windows 不一定是 C:，請以標記、容量及標籤判斷。包含 Windows 的內接、系統或開機磁區都允許製作 VHDX，不會被鎖定。
-- 選擇輸出 VHDX 後開始建立。輸出位置不可放在來源磁區，並應保留足夠空間。
+- 選擇輸出 VHDX 的位置與檔名後，程式會執行 `disk2vhd64.exe 來源磁區 "完整輸出路徑\\檔名.vhdx"`。輸出磁碟應保留足夠空間。
 
 ### 3. 差分與合併
 
