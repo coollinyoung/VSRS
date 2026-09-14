@@ -22,8 +22,10 @@ namespace VSRS
         public string FileSystem { get; set; }
         public ulong Size { get; set; }
         public bool HasWindows { get; set; }
+        public int DiskNumber { get; set; } = -1;
+        public bool IsUsb { get; set; }
         public string SizeText => (Size / 1024d / 1024d / 1024d).ToString("0.0") + " GB";
-        public override string ToString() => $"{DriveLetter}  |  {SizeText}  |  {FileSystem}  |  {Label}" + (HasWindows ? "  [偵測到 Windows]" : "");
+        public override string ToString() => $"{DriveLetter}  |  {SizeText}  |  {FileSystem}  |  {Label}  |  {(IsUsb ? "USB 外接" : "內接/其他")}" + (HasWindows ? "  [偵測到 Windows]" : "");
     }
 
     internal sealed class CommandResult
