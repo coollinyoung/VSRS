@@ -127,7 +127,7 @@ namespace VSRS
             AddText(content, "父 VHDX（唯讀基底）："); parentVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
             AddText(content, "差分檔存放資料夾（固定建立 temp.vhdx 與 temp2.vhdx）：");
             diffOutputFolder = AddFolderPathBox(content);
-            AddText(content, "建立順序：基底 VHDX → temp.vhdx → temp2.vhdx。請只選資料夾，不需要輸入檔名。", Color.FromArgb(36, 83, 125));
+            AddText(content, "兩個檔案都是同一個基底 VHDX 的單層差分檔：temp.vhdx、temp2.vhdx。請只選資料夾，不需要輸入檔名。", Color.FromArgb(36, 83, 125));
             createDiffButton = AddButton(content, "建立兩個差分磁碟", 220); createDiffButton.Click += async (s, e) => await CreateDiffAsync();
             AddSeparator(content);
             AddTitle(content, "合併差分 VHDX 回上一層父磁碟");
@@ -278,13 +278,13 @@ namespace VSRS
             parentVhd.Text = parent;
             diffOutputFolder.Text = outputDirectory;
             WriteLog("差分基底檔：" + parent);
-            WriteLog("第一層差分：" + tempVhd);
-            WriteLog("第二層差分：" + temp2Vhd);
+            WriteLog("單層差分 temp.vhdx：" + tempVhd);
+            WriteLog("單層差分 temp2.vhdx：" + temp2Vhd);
 
             await RunBusyAsync(async () => {
                 CommandResult result = await ProcessService.RunDiskPartAsync(new[] {
                     $"create vdisk file=\"{tempVhd}\" parent=\"{parent}\"",
-                    $"create vdisk file=\"{temp2Vhd}\" parent=\"{tempVhd}\"",
+                    $"create vdisk file=\"{temp2Vhd}\" parent=\"{parent}\"",
                     "exit"
                 }, WriteLog);
 
