@@ -5,6 +5,7 @@ VSRS 是為 USBOX 7.0 / Windows PE 設計的 C# WinForms 桌面工具，提供�
 1. 安裝 Ventoy 到指定實體硬碟，標示 USB 外接或內接/其他磁碟。
 2. 選擇含 Windows 的磁區，透過 Microsoft Disk2vhd 建立 VHDX。
 3. 使用 Windows DiskPart 建立差分 VHDX，或把子 VHDX 合併回上一層父磁碟。
+4. 搜尋隨身碟根目錄下的 `ventoyhdd` 資料夾，將其中全部內容原樣複製到 Ventoy 內接磁碟根目錄。
 
 介面支援 Windows/WinPE 高 DPI 縮放；內容已改用自動垂直排版，不再依賴固定座標，因此中文標籤、按鈕、下拉欄與路徑欄不會互相重疊；較小解析度下可使用頁面捲軸。
 
@@ -87,6 +88,14 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
 - 合併：選子 VHDX，DiskPart 的 `merge vdisk depth=1` 會把變更寫回直接父層。
 - 合併前必須確保 VHDX 未掛載、未被虛擬機使用，並先備份父、子檔案。
+
+### 4. 複製 VentoyHDD 資料
+
+- 按「自動搜尋隨身碟」，程式會尋找各磁碟根目錄下名為 `ventoyhdd` 的資料夾，也可按「瀏覽」手動選取。
+- 目的磁區只列出已辨識為內接、且沒有偵測到 Windows 的磁區，並優先選取磁碟標籤為 `Ventoy` 的磁區。
+- 複製的是 `ventoyhdd` 資料夾內的所有內容，不會在目的磁碟再建立一層 `ventoyhdd`。
+- 子資料夾結構會保持不變；目的地的同名檔案會被覆蓋，來源檔案不會刪除。
+- 執行前會再次列出完整來源及目的地，必須確認後才會開始。
 
 ## 程式結構
 
