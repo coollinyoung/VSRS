@@ -151,6 +151,7 @@ namespace VSRS
             AddText(content, "目的磁區（複製至所選磁區根目錄）：");
             copyTargetVolume = AddCombo(content);
             AddText(content, "列出所有已偵測到的磁區，請核對 Ventoy 目的磁區的代號、容量及標籤。同名檔案將會覆蓋，來源資料不會刪除。", Color.DarkRed);
+            AddText(content, "全部複製成功後，會自動執行目的磁區 os 資料夾中的「隱藏資料夾.bat」。");
             copyButton = AddButton(content, "開始複製資料", 220);
             copyButton.Click += async (s, e) => await CopyVentoyDataAsync();
             return page;
@@ -399,7 +400,7 @@ namespace VSRS
             {
                 Warn("來源與目的地不可位於同一個目的磁區。"); return;
             }
-            if (MessageBox.Show($"來源：{sourceRoot}\r\n目的：{destination}\r\n\r\n將保留目錄結構，並覆蓋目的地的同名檔案。確定開始？",
+            if (MessageBox.Show($"來源：{sourceRoot}\r\n目的：{destination}\r\n\r\n將保留目錄結構，並覆蓋目的地的同名檔案。複製完成後會執行目的磁區 os 資料夾中的「隱藏資料夾.bat」。確定開始？",
                 "確認複製 VentoyHDD 資料", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
 
             await RunBusyAsync(async () => {
@@ -423,11 +424,34 @@ namespace VSRS
                             WriteLog("已複製：" + relative);
                         }
                     });
-                    return new CommandResult { ExitCode = 0, Output = $"完成，共複製 {files} 個檔案。" };
+                    WriteLog($"全部檔案複製完成，共 {files} 個檔案。");
+                    string batchDirectory = Path.Combine(destination, "os");
+                    string batchPath = Path.Combine(batchDirectory, "隱藏資料夾.bat");
+                    if (!File.Exists(batchPath))
+                    {
+                        string message = "檔案已複製完成，但找不到後續批次檔：" + batchPath;
+                        WriteLog(message);
+                        return new CommandResult { ExitCode = -1, Output = message };
+                    }
+
+                    WriteLog("開始執行批次檔：" + batchPath);
+                    // 批次檔由 cmd.exe 執行；以 os 為工作目錄，支援批次檔中的相對路徑。
+                    CommandResult batchResult = await ProcessService.RunAsync(
+                        Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                        "/d /s /c \"\"" + batchPath + "\"\"", WriteLog, batchDirectory);
+                    if (!batchResult.Success)
+                    {
+                        string message = $"檔案已複製完成，但隱藏資料夾.bat 執行失敗，ExitCode={batchResult.ExitCode}。\r\n" +
+                                         batchResult.Output;
+                        WriteLog(message);
+                        return new CommandResult { ExitCode = batchResult.ExitCode, Output = message };
+                    }
+                    WriteLog("隱藏資料夾.bat 執行完成。");
+                    return new CommandResult { ExitCode = 0, Output = $"完成，共複製 {files} 個檔案，並已執行隱藏資料夾.bat。" };
                 }
                 catch (Exception ex)
                 {
-                    WriteLog("複製失敗：" + ex.Message);
+                    WriteLog("複製或後續批次作業失敗：" + ex.Message);
                     return new CommandResult { ExitCode = -1, Output = ex.ToString() };
                 }
             });
