@@ -176,8 +176,8 @@ namespace VSRS
             if (volume == null || string.IsNullOrWhiteSpace(vhdOutput.Text)) { Warn("請選擇來源磁區及輸出檔案。"); return; }
             // VHDX 來源不限制是否包含 Windows；系統/開機磁區也允許進行映像建立。
             WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
-            string disk2vhd = ToolLocator.Find("disk2vhd.exe");
-            if (disk2vhd == null) { Warn("找不到 disk2vhd.exe。請從 Microsoft Sysinternals 下載後放入 Tools 資料夾。"); return; }
+            string disk2vhd = ToolLocator.Find("disk2vhd64.exe");
+            if (disk2vhd == null) { Warn("找不到 disk2vhd64.exe。x64 WinPE 必須使用 64 位元版本，請從 Microsoft Sysinternals 下載後放入 Tools 資料夾。"); return; }
             Directory.CreateDirectory(Path.GetDirectoryName(vhdOutput.Text));
             await RunBusyAsync(() => ProcessService.RunAsync(disk2vhd, $"-accepteula {volume.DriveLetter} \"{vhdOutput.Text}\"", WriteLog));
         }
