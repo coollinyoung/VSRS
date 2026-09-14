@@ -160,8 +160,8 @@ namespace VSRS
             if (disk == null) { Warn("請先選擇目標硬碟。"); return; }
             if (disk.IsBootOrSystem) { Warn("此磁碟被判定為目前系統/開機磁碟，VSRS 已禁止操作。"); return; }
             if (!disk.IsUsb && !allowInternal.Checked) { Warn("目標被判定為內接/非 USB 磁碟。若確實要安裝，請先勾選允許選項。"); return; }
-            string ventoy = ToolLocator.Find("Ventoy2Disk.exe");
-            if (ventoy == null) { Warn("找不到 Ventoy2Disk.exe。請放入程式旁的 Tools\\Ventoy 資料夾。"); return; }
+            string ventoy = ToolLocator.Find("Ventoy2Disk_X64.exe");
+            if (ventoy == null) { Warn("找不到 Ventoy2Disk_X64.exe。請確認它與 Ventoy2Disk.exe 位於程式旁的 Tools\\Ventoy 同一層資料夾。"); return; }
             string typed = Prompt.Show($"即將清除：磁碟 {disk.Number} / {disk.Model} / {disk.SizeText}\r\n請輸入磁碟編號 {disk.Number} 才能繼續：", "最後確認");
             if (typed != disk.Number.ToString()) { WriteLog("使用者取消：確認編號不符。"); return; }
             if (MessageBox.Show("整顆目標磁碟的資料都會消失。確定安裝？", "不可逆警告", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
