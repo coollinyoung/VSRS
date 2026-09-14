@@ -58,7 +58,7 @@ publish\win-x64\
       └─ ventoy\ ...（Ventoy 官方包的其餘檔案）
 ```
 
-VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。頁籤 2 固定呼叫 `disk2vhd64.exe`，避免精簡 x64 PE 因沒有 WOW64 而無法啟動 32 位元 `disk2vhd.exe`；程式會將所選來源磁區及完整 `.vhdx` 輸出檔名依序傳給 `disk2vhd64.exe`；EULA 使用登錄值接受，不傳入不受支援的 `-accepteula` 參數。
+VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。頁籤 2 固定呼叫 `disk2vhd64.exe`，避免精簡 x64 PE 因沒有 WOW64 而無法啟動 32 位元 `disk2vhd.exe`；程式會以 `disk2vhd64.exe -c 來源磁區 "完整輸出路徑\\檔名.vhdx"` 執行；`-c` 會直接複製而不使用 WinPE 通常不具備的 Volume Shadow Copy。EULA 使用登錄值接受，不傳入不受支援的 `-accepteula` 參數。
 
 在 USBOX WinPE 中，VSRS 固定呼叫同層的 `Ventoy2Disk_X64.exe`，不會呼叫可能在 PE 中出錯的 `Ventoy2Disk.exe`。
 
