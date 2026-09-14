@@ -1,84 +1,229 @@
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Management;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace VSRS
 {
+    /// <summary>
+    /// 使用 Windows 原生儲存裝置 API，不依賴 WMI、PowerShell 或 WMIC。
+    /// 適用於精簡的 USBOX / Windows PE。
+    /// </summary>
     internal static class HardwareService
     {
+        private const uint FileShareRead = 0x00000001;
+        private const uint FileShareWrite = 0x00000002;
+        private const uint OpenExisting = 3;
+        private const uint IoctlStorageQueryProperty = 0x002D1400;
+        private const uint IoctlDiskGetLengthInfo = 0x0007405C;
+        private const uint IoctlVolumeGetVolumeDiskExtents = 0x00560000;
+
         public static List<DiskInfo> GetDisks()
         {
+            var windowsDisks = FindWindowsDiskNumbers();
             var result = new List<DiskInfo>();
-            using (var searcher = new ManagementObjectSearcher("SELECT Index,Model,InterfaceType,PNPDeviceID,MediaType,Size FROM Win32_DiskDrive"))
-            foreach (ManagementObject d in searcher.Get())
+
+            for (int number = 0; number < 64; number++)
             {
-                int number = Convert.ToInt32(d["Index"]);
-                string iface = Convert.ToString(d["InterfaceType"]);
-                string pnp = Convert.ToString(d["PNPDeviceID"]);
-                string media = Convert.ToString(d["MediaType"]);
-                bool usb = Contains(iface, "USB") || Contains(pnp, "USB") || Contains(media, "removable");
-                result.Add(new DiskInfo {
-                    Number = number, Model = Convert.ToString(d["Model"]) ?? "未知裝置",
-                    BusType = iface, Size = ToUInt64(d["Size"]), IsUsb = usb,
-                    IsBootOrSystem = IsBootOrSystemDisk(number)
-                });
+                string path = @"\\.\PhysicalDrive" + number;
+                using (var handle = OpenDevice(path))
+                {
+                    if (handle == null || handle.IsInvalid) continue;
+
+                    ulong size = QueryDiskSize(handle);
+                    DeviceDescriptor descriptor = QueryDeviceDescriptor(handle);
+                    result.Add(new DiskInfo {
+                        Number = number,
+                        Model = string.IsNullOrWhiteSpace(descriptor.Model) ? "未知裝置" : descriptor.Model,
+                        BusType = BusTypeName(descriptor.BusType),
+                        Size = size,
+                        IsUsb = descriptor.BusType == 7 || descriptor.Removable,
+                        IsBootOrSystem = windowsDisks.Contains(number)
+                    });
+                }
             }
+
             return result.OrderBy(x => x.Number).ToList();
         }
 
         public static List<VolumeInfo> GetVolumes()
         {
-            var result = new List<VolumeInfo>();
             var disks = GetDisks().ToDictionary(x => x.Number);
-            using (var searcher = new ManagementObjectSearcher("SELECT DeviceID,VolumeName,FileSystem,Size,DriveType FROM Win32_LogicalDisk WHERE DriveType=2 OR DriveType=3"))
-            foreach (ManagementObject v in searcher.Get())
+            var result = new List<VolumeInfo>();
+
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
             {
-                string drive = Convert.ToString(v["DeviceID"]);
-                int diskNumber = GetDiskNumberForDrive(drive);
-                result.Add(new VolumeInfo {
-                    DriveLetter = drive, Label = Convert.ToString(v["VolumeName"]),
-                    FileSystem = Convert.ToString(v["FileSystem"]), Size = ToUInt64(v["Size"]),
-                    HasWindows = !string.IsNullOrWhiteSpace(drive) && Directory.Exists(Path.Combine(drive + "\\", "Windows", "System32")),
-                    DiskNumber = diskNumber,
-                    IsUsb = diskNumber >= 0 && disks.ContainsKey(diskNumber) && disks[diskNumber].IsUsb
-                });
+                try
+                {
+                    if (!drive.IsReady || (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable)) continue;
+                    string letter = drive.Name.TrimEnd('\\');
+                    int diskNumber = GetDiskNumberForDrive(letter);
+                    result.Add(new VolumeInfo {
+                        DriveLetter = letter,
+                        Label = SafeVolumeLabel(drive),
+                        FileSystem = SafeDriveFormat(drive),
+                        Size = (ulong)Math.Max(0, drive.TotalSize),
+                        HasWindows = Directory.Exists(Path.Combine(drive.RootDirectory.FullName, "Windows", "System32")),
+                        DiskNumber = diskNumber,
+                        IsUsb = drive.DriveType == DriveType.Removable ||
+                                (diskNumber >= 0 && disks.ContainsKey(diskNumber) && disks[diskNumber].IsUsb)
+                    });
+                }
+                catch { }
             }
+
             return result.OrderByDescending(x => x.HasWindows).ThenBy(x => x.DriveLetter).ToList();
         }
 
-        private static int GetDiskNumberForDrive(string drive)
+        private static HashSet<int> FindWindowsDiskNumbers()
         {
-            try
+            var result = new HashSet<int>();
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
             {
-                using (var searcher = new ManagementObjectSearcher($"ASSOCIATORS OF {{Win32_LogicalDisk.DeviceID='{drive}'}} WHERE AssocClass=Win32_LogicalDiskToPartition"))
-                foreach (ManagementObject partition in searcher.Get())
-                    return Convert.ToInt32(partition["DiskIndex"]);
-            }
-            catch { }
-            return -1;
-        }
-
-        private static bool IsBootOrSystemDisk(int diskNumber)
-        {
-            try
-            {
-                using (var ps = new ManagementObjectSearcher($"SELECT BootPartition FROM Win32_DiskPartition WHERE DiskIndex={diskNumber}"))
-                foreach (ManagementObject p in ps.Get())
+                try
                 {
-                    if (Convert.ToBoolean(p["BootPartition"] ?? false)) return true;
+                    if (!drive.IsReady || !Directory.Exists(Path.Combine(drive.RootDirectory.FullName, "Windows", "System32"))) continue;
+                    int number = GetDiskNumberForDrive(drive.Name.TrimEnd('\\'));
+                    if (number >= 0) result.Add(number);
                 }
+                catch { }
             }
-            catch { }
-            return false;
+            return result;
         }
 
-        private static bool Contains(string value, string part) => value?.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0;
-        private static ulong ToUInt64(object value) { ulong n; return ulong.TryParse(Convert.ToString(value), out n) ? n : 0; }
+        private static int GetDiskNumberForDrive(string driveLetter)
+        {
+            using (var handle = OpenDevice(@"\\.\" + driveLetter))
+            {
+                if (handle == null || handle.IsInvalid) return -1;
+                IntPtr output = Marshal.AllocHGlobal(1024);
+                try
+                {
+                    uint returned;
+                    if (!DeviceIoControl(handle, IoctlVolumeGetVolumeDiskExtents, IntPtr.Zero, 0, output, 1024, out returned, IntPtr.Zero) || returned < 12)
+                        return -1;
+                    // VOLUME_DISK_EXTENTS：DWORD 數量 + x64 對齊 + 第一個 DISK_EXTENT 的 DiskNumber。
+                    return Marshal.ReadInt32(output, 8);
+                }
+                finally { Marshal.FreeHGlobal(output); }
+            }
+        }
+
+        private static ulong QueryDiskSize(SafeFileHandle handle)
+        {
+            IntPtr output = Marshal.AllocHGlobal(8);
+            try
+            {
+                uint returned;
+                if (!DeviceIoControl(handle, IoctlDiskGetLengthInfo, IntPtr.Zero, 0, output, 8, out returned, IntPtr.Zero)) return 0;
+                long length = Marshal.ReadInt64(output);
+                return length > 0 ? (ulong)length : 0;
+            }
+            finally { Marshal.FreeHGlobal(output); }
+        }
+
+        private static DeviceDescriptor QueryDeviceDescriptor(SafeFileHandle handle)
+        {
+            IntPtr query = Marshal.AllocHGlobal(12);
+            IntPtr output = Marshal.AllocHGlobal(2048);
+            try
+            {
+                for (int i = 0; i < 12; i++) Marshal.WriteByte(query, i, 0);
+                for (int i = 0; i < 2048; i++) Marshal.WriteByte(output, i, 0);
+
+                uint returned;
+                if (!DeviceIoControl(handle, IoctlStorageQueryProperty, query, 12, output, 2048, out returned, IntPtr.Zero) || returned < 36)
+                    return new DeviceDescriptor();
+
+                bool removable = Marshal.ReadByte(output, 10) != 0;
+                uint vendorOffset = (uint)Marshal.ReadInt32(output, 12);
+                uint productOffset = (uint)Marshal.ReadInt32(output, 16);
+                int busType = Marshal.ReadInt32(output, 28);
+                string vendor = ReadAnsiAtOffset(output, vendorOffset, returned);
+                string product = ReadAnsiAtOffset(output, productOffset, returned);
+                return new DeviceDescriptor {
+                    BusType = busType,
+                    Removable = removable,
+                    Model = (vendor + " " + product).Trim()
+                };
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(query);
+                Marshal.FreeHGlobal(output);
+            }
+        }
+
+        private static string ReadAnsiAtOffset(IntPtr buffer, uint offset, uint bufferSize)
+        {
+            if (offset == 0 || offset >= bufferSize) return string.Empty;
+            return (Marshal.PtrToStringAnsi(IntPtr.Add(buffer, (int)offset)) ?? string.Empty).Trim();
+        }
+
+        private static SafeFileHandle OpenDevice(string path)
+        {
+            return CreateFile(path, 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
+        }
+
+        private static string SafeVolumeLabel(DriveInfo drive) { try { return drive.VolumeLabel; } catch { return string.Empty; } }
+        private static string SafeDriveFormat(DriveInfo drive) { try { return drive.DriveFormat; } catch { return string.Empty; } }
+
+        private static string BusTypeName(int busType)
+        {
+            switch (busType)
+            {
+                case 1: return "SCSI";
+                case 2: return "ATAPI";
+                case 3: return "ATA";
+                case 4: return "IEEE 1394";
+                case 6: return "Fibre";
+                case 7: return "USB";
+                case 8: return "RAID";
+                case 9: return "iSCSI";
+                case 10: return "SAS";
+                case 11: return "SATA";
+                case 12: return "SD";
+                case 13: return "MMC";
+                case 14: return "Virtual";
+                case 15: return "FileBacked";
+                case 16: return "Storage Spaces";
+                case 17: return "NVMe";
+                default: return "Unknown";
+            }
+        }
+
+        private sealed class DeviceDescriptor
+        {
+            public int BusType { get; set; }
+            public bool Removable { get; set; }
+            public string Model { get; set; }
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool DeviceIoControl(
+            SafeFileHandle device,
+            uint controlCode,
+            IntPtr inputBuffer,
+            uint inputBufferSize,
+            IntPtr outputBuffer,
+            uint outputBufferSize,
+            out uint bytesReturned,
+            IntPtr overlapped);
     }
 
     internal static class ProcessService
