@@ -34,17 +34,33 @@ namespace VSRS
         public static List<VolumeInfo> GetVolumes()
         {
             var result = new List<VolumeInfo>();
-            using (var searcher = new ManagementObjectSearcher("SELECT DeviceID,VolumeName,FileSystem,Size,DriveType FROM Win32_LogicalDisk WHERE DriveType=3"))
+            var disks = GetDisks().ToDictionary(x => x.Number);
+            using (var searcher = new ManagementObjectSearcher("SELECT DeviceID,VolumeName,FileSystem,Size,DriveType FROM Win32_LogicalDisk WHERE DriveType=2 OR DriveType=3"))
             foreach (ManagementObject v in searcher.Get())
             {
                 string drive = Convert.ToString(v["DeviceID"]);
+                int diskNumber = GetDiskNumberForDrive(drive);
                 result.Add(new VolumeInfo {
                     DriveLetter = drive, Label = Convert.ToString(v["VolumeName"]),
                     FileSystem = Convert.ToString(v["FileSystem"]), Size = ToUInt64(v["Size"]),
-                    HasWindows = !string.IsNullOrWhiteSpace(drive) && Directory.Exists(Path.Combine(drive + "\\", "Windows", "System32"))
+                    HasWindows = !string.IsNullOrWhiteSpace(drive) && Directory.Exists(Path.Combine(drive + "\\", "Windows", "System32")),
+                    DiskNumber = diskNumber,
+                    IsUsb = diskNumber >= 0 && disks.ContainsKey(diskNumber) && disks[diskNumber].IsUsb
                 });
             }
             return result.OrderByDescending(x => x.HasWindows).ThenBy(x => x.DriveLetter).ToList();
+        }
+
+        private static int GetDiskNumberForDrive(string drive)
+        {
+            try
+            {
+                using (var searcher = new ManagementObjectSearcher($"ASSOCIATORS OF {{Win32_LogicalDisk.DeviceID='{drive}'}} WHERE AssocClass=Win32_LogicalDiskToPartition"))
+                foreach (ManagementObject partition in searcher.Get())
+                    return Convert.ToInt32(partition["DiskIndex"]);
+            }
+            catch { }
+            return -1;
         }
 
         private static bool IsBootOrSystemDisk(int diskNumber)
