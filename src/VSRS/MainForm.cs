@@ -208,19 +208,94 @@ namespace VSRS
             await RunBusyAsync(() => ProcessService.RunAsync(disk2vhd, arguments, WriteLog));
         }
 
+        private static bool TryNormalizeVhdxPath(string input, bool mustExist, out string path, out string error)
+        {
+            path = string.Empty;
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                error = "尚未選擇 VHDX 檔案。";
+                return false;
+            }
+
+            try { path = Path.GetFullPath(input.Trim()); }
+            catch (Exception ex)
+            {
+                error = "VHDX 路徑無效。\r\n" + ex.Message;
+                return false;
+            }
+
+            if (!string.Equals(Path.GetExtension(path), ".vhdx", StringComparison.OrdinalIgnoreCase))
+            {
+                error = "檔案必須使用 .vhdx 副檔名。";
+                return false;
+            }
+            if (mustExist && !File.Exists(path))
+            {
+                error = "找不到 VHDX 檔案：\r\n" + path;
+                return false;
+            }
+            return true;
+        }
+
         private async Task CreateDiffAsync()
         {
-            if (!File.Exists(parentVhd.Text) || string.IsNullOrWhiteSpace(childVhd.Text)) { Warn("請選擇存在的父 VHDX 與新子 VHDX 路徑。"); return; }
-            if (File.Exists(childVhd.Text)) { Warn("子 VHDX 已存在，為避免覆寫，請選擇新檔名。"); return; }
-            Directory.CreateDirectory(Path.GetDirectoryName(childVhd.Text));
-            await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] { $"create vdisk file=\"{childVhd.Text}\" parent=\"{parentVhd.Text}\"", "exit" }, WriteLog));
+            if (!TryNormalizeVhdxPath(parentVhd.Text, true, out string parent, out string error))
+            {
+                Warn("父 VHDX：\r\n" + error); return;
+            }
+            if (!TryNormalizeVhdxPath(childVhd.Text, false, out string child, out error))
+            {
+                Warn("新差分 VHDX：\r\n" + error); return;
+            }
+            if (string.Equals(parent, child, StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("父 VHDX 與新差分 VHDX 不可使用相同路徑。"); return;
+            }
+            if (File.Exists(child))
+            {
+                Warn("子 VHDX 已存在，為避免覆寫，請選擇新檔名。"); return;
+            }
+
+            string outputDirectory = Path.GetDirectoryName(child);
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                Warn("請指定新差分 VHDX 的完整資料夾及檔名。"); return;
+            }
+            try { Directory.CreateDirectory(outputDirectory); }
+            catch (Exception ex)
+            {
+                Warn("無法建立差分 VHDX 的輸出資料夾。\r\n" + ex.Message); return;
+            }
+
+            parentVhd.Text = parent;
+            childVhd.Text = child;
+            WriteLog("建立差分父檔：" + parent);
+            WriteLog("建立差分子檔：" + child);
+            await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] {
+                $"create vdisk file=\"{child}\" parent=\"{parent}\"",
+                "exit"
+            }, WriteLog));
         }
 
         private async Task MergeAsync()
         {
-            if (!File.Exists(mergeVhd.Text)) { Warn("請選擇要合併的子 VHDX。"); return; }
-            if (MessageBox.Show("這會把子磁碟變更寫回父 VHDX。已完成備份並確定繼續？", "合併確認", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] { $"select vdisk file=\"{mergeVhd.Text}\"", "merge vdisk depth=1", "exit" }, WriteLog));
+            if (!TryNormalizeVhdxPath(mergeVhd.Text, true, out string child, out string error))
+            {
+                Warn("要合併的子 VHDX：\r\n" + error); return;
+            }
+            mergeVhd.Text = child;
+            if (MessageBox.Show(
+                "這會把子磁碟變更寫回直接父層 VHDX，並可能使同一父檔的其他差分磁碟失效。\r\n\r\n請先關閉使用此 VHDX 的程式並備份父、子檔案。確定繼續？",
+                "合併確認", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+
+            WriteLog("準備合併子 VHDX：" + child);
+            await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] {
+                $"select vdisk file=\"{child}\"",
+                "detach vdisk noerr",
+                "merge vdisk depth=1",
+                "exit"
+            }, WriteLog));
         }
 
         private async Task CopyVentoyDataAsync()
