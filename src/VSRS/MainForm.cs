@@ -199,8 +199,9 @@ namespace VSRS
             }
             catch (Exception ex) { WriteLog("無法預先寫入 Disk2vhd EULA 登錄值：" + ex.Message); }
 
-            // 官方語法：disk2vhd64.exe <來源磁區> <VHD 檔案>。副檔名 .vhdx 會建立 VHDX。
-            string arguments = $"{volume.DriveLetter} \"{output}\"";
+            // WinPE 沒有 VSS，使用 -c 直接複製，避免 Volume Shadow Copy 失敗。
+            // 語法：disk2vhd64.exe -c <來源磁區> <VHDX 檔案>。
+            string arguments = $"-c {volume.DriveLetter} \"{output}\"";
             WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
             WriteLog("實際執行檔：" + disk2vhd);
             WriteLog("實際參數：" + arguments);
