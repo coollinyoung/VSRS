@@ -74,7 +74,7 @@ USBOX 不同版本的「外置程式」資料夾名稱可能不同，建議先�
 - 按「重新偵測磁碟」。
 - 同時核對磁碟編號、容量、型號及 USB/內接標示。
 - 系統磁碟會顯示 `[系統保護]` 並禁止操作。
-- 要操作內接/非 USB 磁碟時，還必須勾選允許選項；程式只在此情況加入 Ventoy `/NOUSBCheck`。
+- 要操作內接/非 USB 磁碟時，還必須勾選允許選項；程式只在此情況固定加入 Ventoy `/GPT /FS:NTFS /NOUSBCheck`，使用 GPT 分割樣式並將 Ventoy 資料磁區格式化為 NTFS。
 - 按安裝後，必須再次輸入磁碟編號，再確認資料清除警告。
 
 USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷。某些 USB-SATA/NVMe 橋接晶片可能回報為 SCSI，因此這只是輔助標示，容量與型號才是最後核對依據。
