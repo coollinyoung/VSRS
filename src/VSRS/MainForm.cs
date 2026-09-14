@@ -21,8 +21,9 @@ namespace VSRS
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
         private CheckBox allowInternal;
-        private TextBox vhdOutput, parentVhd, childVhd, mergeVhd;
-        private Button installButton, captureButton, createDiffButton, mergeButton;
+        private TextBox vhdOutput, parentVhd, childVhd, mergeVhd, copySourceFolder;
+        private ComboBox copyTargetVolume;
+        private Button installButton, captureButton, createDiffButton, mergeButton, copyButton;
 
         public MainForm()
         {
@@ -39,7 +40,7 @@ namespace VSRS
             // WinPE 常使用 125%～200% DPI。固定較高的頁籤標頭，避免中文字被裁切。
             tabs.Font = new Font("Microsoft JhengHei UI", 10.5F, FontStyle.Bold);
             tabs.SizeMode = TabSizeMode.Fixed;
-            tabs.ItemSize = new Size(220, 40);
+            tabs.ItemSize = new Size(205, 40);
             tabs.Padding = new Point(14, 6);
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.Cursor = ActionCursor;
@@ -48,6 +49,7 @@ namespace VSRS
             tabs.TabPages.Add(BuildVentoyTab());
             tabs.TabPages.Add(BuildCaptureTab());
             tabs.TabPages.Add(BuildDifferencingTab());
+            tabs.TabPages.Add(BuildCopyTab());
 
             log.Dock = DockStyle.Bottom; log.Height = 78; log.Multiline = true; log.ScrollBars = ScrollBars.Both;
             log.ReadOnly = true; log.BackColor = Color.FromArgb(24, 32, 42); log.ForeColor = Color.FromArgb(212, 223, 234);
@@ -134,6 +136,24 @@ namespace VSRS
             return page;
         }
 
+        private TabPage BuildCopyTab()
+        {
+            var page = NewPage("4. 複製 VentoyHDD 資料");
+            var content = AddContentPanel(page);
+            AddTitle(content, "複製隨身碟中的 VentoyHDD 資料");
+            AddText(content, "來源為 USB 隨身碟根目錄下的 ventoyhdd 資料夾。程式會複製其中所有檔案及子資料夾，並保持原本目錄結構。", Color.FromArgb(36, 83, 125));
+            AddText(content, "來源資料夾：");
+            copySourceFolder = AddFolderPathBox(content);
+            var detect = AddButton(content, "自動搜尋隨身碟", 200);
+            detect.Click += (s, e) => DetectVentoyHddSource(true);
+            AddText(content, "目的磁區（Ventoy 內接磁碟根目錄）：");
+            copyTargetVolume = AddCombo(content);
+            AddText(content, "安全限制：不顯示 USB 磁區及偵測到 Windows 的磁區。同名檔案將會覆蓋，來源資料不會刪除。", Color.DarkRed);
+            copyButton = AddButton(content, "開始複製資料", 220);
+            copyButton.Click += async (s, e) => await CopyVentoyDataAsync();
+            return page;
+        }
+
         private async Task InstallVentoyAsync()
         {
             var disk = diskBox.SelectedItem as DiskInfo;
@@ -175,12 +195,103 @@ namespace VSRS
             await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] { $"select vdisk file=\"{mergeVhd.Text}\"", "merge vdisk depth=1", "exit" }, WriteLog));
         }
 
+        private async Task CopyVentoyDataAsync()
+        {
+            string source = copySourceFolder.Text.Trim();
+            var target = copyTargetVolume.SelectedItem as VolumeInfo;
+            if (!Directory.Exists(source)) { Warn("找不到來源 ventoyhdd 資料夾，請重新搜尋或手動選擇。"); return; }
+            if (!string.Equals(new DirectoryInfo(source).Name, "ventoyhdd", StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("來源資料夾名稱必須是 ventoyhdd。"); return;
+            }
+            if (target == null) { Warn("請選擇 Ventoy 內接磁碟的目的磁區。"); return; }
+            if (target.IsUsb || target.HasWindows) { Warn("安全檢查未通過：目的地不可為 USB 或 Windows 系統磁區。"); return; }
+
+            string destination = Path.GetPathRoot(target.DriveLetter + "\\");
+            string sourceRoot = Path.GetFullPath(source).TrimEnd('\\') + "\\";
+            if (sourceRoot.StartsWith(destination, StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("來源與目的地不可位於同一個目的磁區。"); return;
+            }
+            if (MessageBox.Show($"來源：{sourceRoot}\r\n目的：{destination}\r\n\r\n將保留目錄結構，並覆蓋目的地的同名檔案。確定開始？",
+                "確認複製 VentoyHDD 資料", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+
+            await RunBusyAsync(async () => {
+                int files = 0;
+                try
+                {
+                    await Task.Run(() => {
+                        foreach (string directory in Directory.GetDirectories(sourceRoot, "*", SearchOption.AllDirectories))
+                        {
+                            string relative = directory.Substring(sourceRoot.Length);
+                            Directory.CreateDirectory(Path.Combine(destination, relative));
+                        }
+                        foreach (string file in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
+                        {
+                            string relative = file.Substring(sourceRoot.Length);
+                            string output = Path.Combine(destination, relative);
+                            string outputDirectory = Path.GetDirectoryName(output);
+                            if (!Directory.Exists(outputDirectory)) Directory.CreateDirectory(outputDirectory);
+                            File.Copy(file, output, true);
+                            files++;
+                            WriteLog("已複製：" + relative);
+                        }
+                    });
+                    return new CommandResult { ExitCode = 0, Output = $"完成，共複製 {files} 個檔案。" };
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("複製失敗：" + ex.Message);
+                    return new CommandResult { ExitCode = -1, Output = ex.ToString() };
+                }
+            });
+        }
+
+        private void DetectVentoyHddSource(bool showResult)
+        {
+            string found = null;
+            var usbLetters = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var volume in HardwareService.GetVolumes().Where(v => v.IsUsb)) usbLetters.Add(volume.DriveLetter);
+            }
+            catch { }
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!drive.IsReady) continue;
+                    string letter = drive.RootDirectory.FullName.TrimEnd('\\');
+                    if (drive.DriveType != DriveType.Removable && !usbLetters.Contains(letter)) continue;
+                    string candidate = Path.Combine(drive.RootDirectory.FullName, "ventoyhdd");
+                    if (Directory.Exists(candidate)) { found = candidate; break; }
+                }
+                catch { }
+            }
+            if (found != null)
+            {
+                copySourceFolder.Text = found;
+                WriteLog("找到 VentoyHDD 來源：" + found);
+                if (showResult) MessageBox.Show("已找到：\r\n" + found, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else if (showResult) Warn("找不到任何磁碟根目錄下的 ventoyhdd 資料夾。");
+        }
+
         private void RefreshHardware()
         {
             try
             {
                 diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks()) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
                 volumeBox.Items.Clear(); foreach (var v in HardwareService.GetVolumes()) volumeBox.Items.Add(v); if (volumeBox.Items.Count > 0) volumeBox.SelectedIndex = 0;
+                copyTargetVolume.Items.Clear();
+                foreach (var v in HardwareService.GetVolumes().Where(v => v.DiskNumber >= 0 && !v.IsUsb && !v.HasWindows)) copyTargetVolume.Items.Add(v);
+                if (copyTargetVolume.Items.Count > 0)
+                {
+                    int preferred = Enumerable.Range(0, copyTargetVolume.Items.Count)
+                        .FirstOrDefault(i => string.Equals(((VolumeInfo)copyTargetVolume.Items[i]).Label, "Ventoy", StringComparison.OrdinalIgnoreCase));
+                    copyTargetVolume.SelectedIndex = preferred;
+                }
+                DetectVentoyHddSource(false);
                 WriteLog($"偵測完成：{diskBox.Items.Count} 顆磁碟，{volumeBox.Items.Count} 個本機磁區。");
             }
             catch (Exception ex) { Warn("硬體偵測失敗。USBOX 必須包含 WMI 元件。\r\n" + ex.Message); }
@@ -193,7 +304,7 @@ namespace VSRS
             finally { SetBusy(false); }
         }
 
-        private void SetBusy(bool busy) { installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = !busy; UseWaitCursor = busy; }
+        private void SetBusy(bool busy) { installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = copyButton.Enabled = !busy; UseWaitCursor = busy; }
         private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
@@ -314,6 +425,33 @@ namespace VSRS
             button.Click += (s, e) => {
                 if (save) { using (var d = new SaveFileDialog { Filter = filter, DefaultExt = "vhdx", AddExtension = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
                 else { using (var d = new OpenFileDialog { Filter = filter, CheckFileExists = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
+            };
+            row.Controls.Add(box, 0, 0);
+            row.Controls.Add(button, 1, 0);
+            p.Controls.Add(row);
+            ResizeFlowChildren(p);
+            return box;
+        }
+
+        private static TextBox AddFolderPathBox(FlowLayoutPanel p)
+        {
+            var row = new TableLayoutPanel {
+                Width = 850,
+                Height = Math.Max(44, p.Font.Height + 24),
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(3, 0, 3, 12)
+            };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
+            var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, ForeColor = TextColor };
+            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(226, 235, 244), ForeColor = TextColor, Cursor = ActionCursor };
+            button.FlatAppearance.BorderColor = Color.FromArgb(170, 187, 204);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(207, 222, 236);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(187, 207, 226);
+            button.Click += (s, e) => {
+                using (var dialog = new FolderBrowserDialog { Description = "選擇隨身碟根目錄下的 ventoyhdd 資料夾", ShowNewFolderButton = false })
+                    if (dialog.ShowDialog() == DialogResult.OK) box.Text = dialog.SelectedPath;
             };
             row.Controls.Add(box, 0, 0);
             row.Controls.Add(button, 1, 0);
