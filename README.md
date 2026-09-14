@@ -92,10 +92,12 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 ### 3. 差分與合併
 
-- 建立：選父 VHDX 與尚不存在的子 VHDX 路徑。程式會自動尋找或建立可寫入的 PE 暫存資料夾，再產生 DiskPart 指令檔。
+- 建立：選父 VHDX 與尚不存在的子 VHDX 路徑。程式會檢查父檔存在、父子副檔名均為 `.vhdx`、父子路徑不同，並建立所需的輸出資料夾。
+- 程式會逐一測試 TEMP、TMP、Windows Temp、`X:\\Windows\\Temp`、`X:\\Temp` 與程式目錄，使用第一個可寫入的位置建立 DiskPart 暫存腳本。
+- DiskPart 腳本使用 Unicode，支援中文路徑；下方紀錄框會顯示腳本位置及每一條實際執行的指令。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
-- 合併：選子 VHDX，DiskPart 的 `merge vdisk depth=1` 會把變更寫回直接父層。
-- 合併前必須確保 VHDX 未掛載、未被虛擬機使用，並先備份父、子檔案。
+- 合併：選擇存在的子 VHDX 後，程式會依序執行 `select vdisk`、`detach vdisk noerr`、`merge vdisk depth=1`，把變更寫回直接父層。
+- 合併會修改父 VHDX，並可能使同一父檔的其他差分磁碟失效。執行前請關閉使用該 VHDX 的程式，並備份父、子檔案。
 
 ### 4. 複製 VentoyHDD 資料
 
