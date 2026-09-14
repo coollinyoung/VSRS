@@ -148,9 +148,9 @@ namespace VSRS
             copySourceFolder = AddFolderPathBox(content);
             var detect = AddButton(content, "自動搜尋隨身碟", 200);
             detect.Click += (s, e) => DetectVentoyHddSource(true);
-            AddText(content, "目的磁區（Ventoy 內接磁碟根目錄）：");
+            AddText(content, "目的磁區（複製至所選磁區根目錄）：");
             copyTargetVolume = AddCombo(content);
-            AddText(content, "安全限制：不顯示 USB 磁區及偵測到 Windows 的磁區。同名檔案將會覆蓋，來源資料不會刪除。", Color.DarkRed);
+            AddText(content, "列出所有已偵測到的磁區，請核對 Ventoy 目的磁區的代號、容量及標籤。同名檔案將會覆蓋，來源資料不會刪除。", Color.DarkRed);
             copyButton = AddButton(content, "開始複製資料", 220);
             copyButton.Click += async (s, e) => await CopyVentoyDataAsync();
             return page;
@@ -391,8 +391,7 @@ namespace VSRS
             {
                 Warn("來源資料夾名稱必須是 ventoyhdd。"); return;
             }
-            if (target == null) { Warn("請選擇 Ventoy 內接磁碟的目的磁區。"); return; }
-            if (target.IsUsb || target.HasWindows) { Warn("安全檢查未通過：目的地不可為 USB 或 Windows 系統磁區。"); return; }
+            if (target == null) { Warn("請選擇要複製到的 Ventoy 目的磁區。"); return; }
 
             string destination = Path.GetPathRoot(target.DriveLetter + "\\");
             string sourceRoot = Path.GetFullPath(source).TrimEnd('\\') + "\\";
@@ -471,7 +470,7 @@ namespace VSRS
                 diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks()) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
                 volumeBox.Items.Clear(); foreach (var v in HardwareService.GetVolumes()) volumeBox.Items.Add(v); if (volumeBox.Items.Count > 0) volumeBox.SelectedIndex = 0;
                 copyTargetVolume.Items.Clear();
-                foreach (var v in HardwareService.GetVolumes().Where(v => v.DiskNumber >= 0 && !v.IsUsb && !v.HasWindows)) copyTargetVolume.Items.Add(v);
+                foreach (var v in HardwareService.GetVolumes()) copyTargetVolume.Items.Add(v);
                 if (copyTargetVolume.Items.Count > 0)
                 {
                     int preferred = Enumerable.Range(0, copyTargetVolume.Items.Count)
