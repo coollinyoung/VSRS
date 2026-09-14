@@ -188,6 +188,9 @@ namespace VSRS
                 Warn("輸出檔案必須使用 .vhdx 副檔名。"); return;
             }
 
+            // 無論使用者或檔案選擇視窗輸入 .VHDX／.Vhdx，都統一使用小寫 .vhdx。
+            output = Path.ChangeExtension(output, ".vhdx");
+
             string outputDirectory = Path.GetDirectoryName(output);
             if (string.IsNullOrWhiteSpace(outputDirectory)) { Warn("請指定完整的 VHDX 輸出資料夾及檔名。"); return; }
             Directory.CreateDirectory(outputDirectory);
