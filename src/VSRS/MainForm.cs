@@ -174,12 +174,37 @@ namespace VSRS
         {
             var volume = volumeBox.SelectedItem as VolumeInfo;
             if (volume == null || string.IsNullOrWhiteSpace(vhdOutput.Text)) { Warn("請選擇來源磁區及輸出檔案。"); return; }
-            // VHDX 來源不限制是否包含 Windows；系統/開機磁區也允許進行映像建立。
-            WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
+
             string disk2vhd = ToolLocator.Find("disk2vhd64.exe");
             if (disk2vhd == null) { Warn("找不到 disk2vhd64.exe。x64 WinPE 必須使用 64 位元版本，請從 Microsoft Sysinternals 下載後放入 Tools 資料夾。"); return; }
-            Directory.CreateDirectory(Path.GetDirectoryName(vhdOutput.Text));
-            await RunBusyAsync(() => ProcessService.RunAsync(disk2vhd, $"-accepteula {volume.DriveLetter} \"{vhdOutput.Text}\"", WriteLog));
+
+            string output;
+            try { output = Path.GetFullPath(vhdOutput.Text.Trim()); }
+            catch (Exception ex) { Warn("VHDX 輸出路徑無效。\r\n" + ex.Message); return; }
+            if (!string.Equals(Path.GetExtension(output), ".vhdx", StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("輸出檔案必須使用 .vhdx 副檔名。"); return;
+            }
+
+            string outputDirectory = Path.GetDirectoryName(output);
+            if (string.IsNullOrWhiteSpace(outputDirectory)) { Warn("請指定完整的 VHDX 輸出資料夾及檔名。"); return; }
+            Directory.CreateDirectory(outputDirectory);
+            vhdOutput.Text = output;
+
+            // Disk2vhd 不接受 -accepteula 命令列參數；改以 Sysinternals 標準登錄值接受 EULA。
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Sysinternals\Disk2vhd"))
+                    key?.SetValue("EulaAccepted", 1, Microsoft.Win32.RegistryValueKind.DWord);
+            }
+            catch (Exception ex) { WriteLog("無法預先寫入 Disk2vhd EULA 登錄值：" + ex.Message); }
+
+            // 官方語法：disk2vhd64.exe <來源磁區> <VHD 檔案>。副檔名 .vhdx 會建立 VHDX。
+            string arguments = $"{volume.DriveLetter} \"{output}\"";
+            WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
+            WriteLog("實際執行檔：" + disk2vhd);
+            WriteLog("實際參數：" + arguments);
+            await RunBusyAsync(() => ProcessService.RunAsync(disk2vhd, arguments, WriteLog));
         }
 
         private async Task CreateDiffAsync()
