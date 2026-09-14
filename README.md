@@ -48,11 +48,14 @@ net48\
 └─ Tools\
    ├─ disk2vhd.exe
    └─ Ventoy\
+      ├─ Ventoy2Disk_X64.exe（VSRS 實際呼叫）
       ├─ Ventoy2Disk.exe
       └─ ventoy\ ...（Ventoy 官方包的其餘檔案）
 ```
 
 VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。第一次執行 Disk2vhd 時，程式會加上 `-accepteula` 參數。
+
+在 USBOX WinPE 中，VSRS 固定呼叫同層的 `Ventoy2Disk_X64.exe`，不會呼叫可能在 PE 中出錯的 `Ventoy2Disk.exe`。
 
 ## 加入 USBOX 7.0
 
