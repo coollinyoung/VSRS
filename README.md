@@ -92,7 +92,8 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 ### 3. 差分與合併
 
-- 建立：選父 VHDX 與尚不存在的子 VHDX 路徑。程式會檢查父檔存在、父子副檔名均為 `.vhdx`、父子路徑不同，並建立所需的輸出資料夾。
+- 建立：選擇父 VHDX 與存放資料夾，不需要輸入檔名。程式固定建立兩層差分：`基底 VHDX → temp.vhdx → temp2.vhdx`。
+- 如果指定資料夾已存在 `temp.vhdx` 或 `temp2.vhdx`，程式會停止以避免覆寫。只有 DiskPart 結束後兩個檔案都實際存在，畫面才會顯示完成。
 - 程式會逐一測試 TEMP、TMP、Windows Temp、`X:\\Windows\\Temp`、`X:\\Temp` 與程式目錄，使用第一個可寫入的位置建立 DiskPart 暫存腳本。
 - DiskPart 腳本使用 Unicode，支援中文路徑；下方紀錄框會顯示腳本位置及每一條實際執行的指令。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
