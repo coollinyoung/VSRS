@@ -51,14 +51,14 @@ Windows 10/11 支援時，程式標題列也會套用深藍灰背景、白色文
 publish\win-x64\
 ├─ VSRS.exe（已內含 .NET 8 Runtime）
 └─ Tools\
-   ├─ disk2vhd.exe
+   ├─ disk2vhd64.exe（VSRS 實際呼叫）\n   ├─ disk2vhd.exe（可選，不會在 x64 PE 中呼叫）
    └─ Ventoy\
       ├─ Ventoy2Disk_X64.exe（VSRS 實際呼叫）
       ├─ Ventoy2Disk.exe
       └─ ventoy\ ...（Ventoy 官方包的其餘檔案）
 ```
 
-VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。第一次執行 Disk2vhd 時，程式會加上 `-accepteula` 參數。
+VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。頁籤 2 固定呼叫 `disk2vhd64.exe`，避免精簡 x64 PE 因沒有 WOW64 而無法啟動 32 位元 `disk2vhd.exe`；第一次執行會加上 `-accepteula` 參數。
 
 在 USBOX WinPE 中，VSRS 固定呼叫同層的 `Ventoy2Disk_X64.exe`，不會呼叫可能在 PE 中出錯的 `Ventoy2Disk.exe`。
 
