@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -30,6 +31,7 @@ namespace VSRS
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft JhengHei UI", 10F);
             BackColor = WindowBackColor;
+            DoubleBuffered = true;
 
             tabs.Dock = DockStyle.Fill;
             // WinPE 常使用 125%～200% DPI。固定較高的頁籤標頭，避免中文字被裁切。
@@ -38,6 +40,7 @@ namespace VSRS
             tabs.ItemSize = new Size(220, 40);
             tabs.Padding = new Point(14, 6);
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+            tabs.Cursor = Cursors.Hand;
             tabs.DrawItem += DrawTabItem;
             tabs.SelectedIndexChanged += (s, e) => tabs.Invalidate();
             tabs.TabPages.Add(BuildVentoyTab());
@@ -50,6 +53,38 @@ namespace VSRS
             Controls.Add(tabs); Controls.Add(log);
             Shown += (s, e) => RefreshHardware();
         }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDarkTitleBar();
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            try
+            {
+                int enabled = 1;
+                // Windows 10 20H1+ 使用 20；較舊的 Windows 10 使用 19。
+                if (DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int)) != 0)
+                    DwmSetWindowAttribute(Handle, 19, ref enabled, sizeof(int));
+
+                // Windows 11 支援自訂標題列、文字與邊框色；舊版系統會安全地忽略。
+                int caption = ToColorRef(TabDarkColor);
+                int text = ToColorRef(Color.White);
+                int border = ToColorRef(Color.FromArgb(29, 79, 124));
+                DwmSetWindowAttribute(Handle, 35, ref caption, sizeof(int));
+                DwmSetWindowAttribute(Handle, 36, ref text, sizeof(int));
+                DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
+            }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+        }
+
+        private static int ToColorRef(Color color) => color.R | (color.G << 8) | (color.B << 16);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
 
         private TabPage BuildVentoyTab()
         {
@@ -252,6 +287,8 @@ namespace VSRS
                 Cursor = Cursors.Hand
             };
             c.FlatAppearance.BorderColor = Color.FromArgb(29, 79, 124);
+            c.FlatAppearance.MouseOverBackColor = Color.FromArgb(47, 119, 181);
+            c.FlatAppearance.MouseDownBackColor = Color.FromArgb(25, 73, 113);
             p.Controls.Add(c);
             return c;
         }
@@ -270,6 +307,8 @@ namespace VSRS
             var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, ForeColor = TextColor };
             var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(226, 235, 244), ForeColor = TextColor, Cursor = Cursors.Hand };
             button.FlatAppearance.BorderColor = Color.FromArgb(170, 187, 204);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(207, 222, 236);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(187, 207, 226);
             button.Click += (s, e) => {
                 if (save) { using (var d = new SaveFileDialog { Filter = filter, DefaultExt = "vhdx", AddExtension = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
                 else { using (var d = new OpenFileDialog { Filter = filter, CheckFileExists = true }) if (d.ShowDialog() == DialogResult.OK) box.Text = d.FileName; }
@@ -293,6 +332,8 @@ namespace VSRS
             button.BackColor = Color.FromArgb(253, 235, 235);
             button.ForeColor = Color.FromArgb(166, 27, 27);
             button.FlatAppearance.BorderColor = Color.FromArgb(220, 100, 100);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(250, 214, 214);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(245, 190, 190);
         }
 
         private static void ResizeFlowChildren(FlowLayoutPanel p)
