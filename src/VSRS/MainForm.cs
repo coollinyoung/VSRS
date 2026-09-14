@@ -339,7 +339,29 @@ namespace VSRS
             };
             page.Controls.Add(panel);
             panel.ClientSizeChanged += (s, e) => ResizeFlowChildren(panel);
+            AddAuthorLabel(page);
             return panel;
+        }
+
+        private static void AddAuthorLabel(TabPage page)
+        {
+            var author = new Label {
+                Text = "作者：楊凱文",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(105, 120, 136),
+                BackColor = ContentBackColor,
+                Font = new Font("Microsoft JhengHei UI", 9.5F, FontStyle.Regular),
+                Anchor = AnchorStyles.Right | AnchorStyles.Bottom,
+                Padding = new Padding(8, 4, 8, 4)
+            };
+            Action position = () => {
+                author.Left = Math.Max(10, page.ClientSize.Width - author.Width - 22);
+                author.Top = Math.Max(10, page.ClientSize.Height - author.Height - 16);
+            };
+            page.Controls.Add(author);
+            author.BringToFront();
+            page.ClientSizeChanged += (s, e) => position();
+            position();
         }
 
         private static Label AddTitle(FlowLayoutPanel p, string text)
