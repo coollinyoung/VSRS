@@ -295,7 +295,7 @@ namespace VSRS
                 DetectVentoyHddSource(false);
                 WriteLog($"偵測完成：{diskBox.Items.Count} 顆磁碟，{volumeBox.Items.Count} 個本機磁區。");
             }
-            catch (Exception ex) { Warn("硬體偵測失敗。USBOX 必須包含 WMI 元件。\r\n" + ex.Message); }
+            catch (Exception ex) { Warn("原生磁碟偵測失敗。請確認程式以系統管理員權限執行。\r\n" + ex.Message); }
         }
 
         private async Task RunBusyAsync(Func<Task<CommandResult>> action)
