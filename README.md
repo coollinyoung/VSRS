@@ -15,7 +15,9 @@ Windows 10/11 支援時，程式標題列也會套用深藍灰背景、白色文
 
 頁籤與可點擊按鈕使用程式繪製的黃色手型游標及深色外框，方便在淺色和深色區域辨識；不支援自訂游標的 WinPE 會自動退回系統手型。
 
-> **WinPE 相容性：** 磁碟與磁區偵測使用 Windows 原生 `CreateFile`／`DeviceIoControl` API，不依賴 WMI、WMIC 或 PowerShell。\n\n> **重要：** 本專案仍是 Windows Forms，只是由依賴 .NET Framework 4.8 改為 .NET 8 自包含單檔發行。Microsoft 的自包含發行會將執行所需 Runtime 一起部署，因此 PE 不需安裝 .NET。第一次發行會下載 Runtime 與 NuGet 套件，需可連上網路。
+> **WinPE 相容性：** 磁碟與磁區偵測使用 Windows 原生 `CreateFile`／`DeviceIoControl` API，不依賴 WMI、WMIC 或 PowerShell。
+
+> **重要：** 本專案仍是 Windows Forms，只是由依賴 .NET Framework 4.8 改為 .NET 8 自包含單檔發行。Microsoft 的自包含發行會將執行所需 Runtime 一起部署，因此 PE 不需安裝 .NET。第一次發行會下載 Runtime 與 NuGet 套件，需可連上網路。
 
 > **重要警告**：Ventoy 安裝與 VHDX 合併可能造成永久資料遺失。第一版請先用沒有重要資料的測試電腦及測試硬碟驗證，勿直接用於正式電腦。
 
