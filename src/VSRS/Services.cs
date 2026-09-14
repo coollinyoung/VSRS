@@ -251,11 +251,31 @@ namespace VSRS
 
         public static async Task<CommandResult> RunDiskPartAsync(IEnumerable<string> commands, Action<string> log)
         {
+            string diskPart = Path.Combine(Environment.SystemDirectory, "diskpart.exe");
+            if (!File.Exists(diskPart))
+            {
+                const string message = "找不到 Windows DiskPart：WinPE 必須包含 diskpart.exe。";
+                log?.Invoke(message);
+                return new CommandResult { ExitCode = -1, Output = message };
+            }
+
+            var commandList = commands.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
             string tempDirectory = FindWritableTempDirectory();
             string script = Path.Combine(tempDirectory, "VSRS_" + Guid.NewGuid().ToString("N") + ".txt");
             log?.Invoke("DiskPart 暫存腳本：" + script);
-            File.WriteAllLines(script, commands, Encoding.ASCII);
-            try { return await RunAsync(Path.Combine(Environment.SystemDirectory, "diskpart.exe"), "/s \"" + script + "\"", log); }
+            foreach (string command in commandList) log?.Invoke("DISKPART> " + command);
+
+            try
+            {
+                // UTF-16 LE（含 BOM）可保留 WinPE 中的中文與非 ASCII 路徑。
+                File.WriteAllLines(script, commandList, Encoding.Unicode);
+                return await RunAsync(diskPart, "/s \"" + script + "\"", log);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke("建立或執行 DiskPart 指令檔失敗：" + ex.Message);
+                return new CommandResult { ExitCode = -1, Output = ex.ToString() };
+            }
             finally { try { File.Delete(script); } catch { } }
         }
 
