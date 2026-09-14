@@ -285,29 +285,37 @@ namespace VSRS
             WriteLog("單層差分 temp2.vhdx：" + temp2Vhd);
 
             await RunBusyAsync(async () => {
-                CommandResult result = await ProcessService.RunDiskPartAsync(new[] {
-                    $"create vdisk file=\"{tempVhd}\" parent=\"{parent}\"",
-                    $"create vdisk file=\"{temp2Vhd}\" parent=\"{parent}\"",
-                    "exit"
-                }, WriteLog);
-
-                bool tempCreated = File.Exists(tempVhd);
-                bool temp2Created = File.Exists(temp2Vhd);
-                WriteLog("檔案確認 temp.vhdx：" + (tempCreated ? "已建立" : "未建立"));
-                WriteLog("檔案確認 temp2.vhdx：" + (temp2Created ? "已建立" : "未建立"));
-
-                if (!result.Success || !tempCreated || !temp2Created)
+                CommandResult first = await VirtualDiskService.CreateDifferencingVhdxAsync(
+                    tempVhd, parent, WriteLog);
+                if (!first.Success || !File.Exists(tempVhd))
                 {
-                    string missing = !tempCreated && !temp2Created ? "temp.vhdx、temp2.vhdx" :
-                                     !tempCreated ? "temp.vhdx" : "temp2.vhdx";
+                    string detail = first.Output + Environment.NewLine +
+                                    "指定資料夾中未找到 temp.vhdx。";
+                    WriteLog(detail);
                     return new CommandResult {
-                        ExitCode = result.Success ? -2 : result.ExitCode,
-                        Output = result.Output + Environment.NewLine +
-                                 "建立結果驗證失敗，指定資料夾中缺少：" + missing
+                        ExitCode = first.Success ? -2 : first.ExitCode,
+                        Output = detail
                     };
                 }
+                WriteLog("檔案確認 temp.vhdx：已建立");
 
-                return result;
+                CommandResult second = await VirtualDiskService.CreateDifferencingVhdxAsync(
+                    temp2Vhd, parent, WriteLog);
+                if (!second.Success || !File.Exists(temp2Vhd))
+                {
+                    string detail = second.Output + Environment.NewLine +
+                                    "temp.vhdx 已建立，但指定資料夾中未找到 temp2.vhdx。";
+                    WriteLog(detail);
+                    return new CommandResult {
+                        ExitCode = second.Success ? -2 : second.ExitCode,
+                        Output = detail
+                    };
+                }
+                WriteLog("檔案確認 temp2.vhdx：已建立");
+                return new CommandResult {
+                    ExitCode = 0,
+                    Output = "temp.vhdx 與 temp2.vhdx 均已建立。"
+                };
             });
         }
 
@@ -436,7 +444,16 @@ namespace VSRS
         private async Task RunBusyAsync(Func<Task<CommandResult>> action)
         {
             SetBusy(true); WriteLog("開始執行……");
-            try { var r = await action(); WriteLog(r.Success ? "完成（ExitCode 0）。" : "執行失敗，ExitCode=" + r.ExitCode); if (!r.Success) Warn("作業未成功，請查看下方紀錄。"); }
+            try
+            {
+                var r = await action();
+                WriteLog(r.Success ? "完成（ExitCode 0）。" : "執行失敗，ExitCode=" + r.ExitCode);
+                if (!r.Success)
+                {
+                    string detail = string.IsNullOrWhiteSpace(r.Output) ? "沒有其他錯誤資訊。" : r.Output;
+                    Warn("作業未成功：\r\n\r\n" + detail + "\r\n\r\n完整過程請查看下方紀錄。");
+                }
+            }
             finally { SetBusy(false); }
         }
 
