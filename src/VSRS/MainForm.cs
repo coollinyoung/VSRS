@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -15,6 +16,7 @@ namespace VSRS
         private static readonly Color TabDarkColor = Color.FromArgb(38, 52, 69);
         private static readonly Color AccentColor = Color.FromArgb(36, 99, 155);
         private static readonly Color TextColor = Color.FromArgb(31, 45, 61);
+        private static readonly Cursor ActionCursor = CreateYellowHandCursor();
         private readonly TabControl tabs = new TabControl();
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
@@ -40,7 +42,7 @@ namespace VSRS
             tabs.ItemSize = new Size(220, 40);
             tabs.Padding = new Point(14, 6);
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
-            tabs.Cursor = Cursors.Hand;
+            tabs.Cursor = ActionCursor;
             tabs.DrawItem += DrawTabItem;
             tabs.SelectedIndexChanged += (s, e) => tabs.Invalidate();
             tabs.TabPages.Add(BuildVentoyTab());
@@ -284,7 +286,7 @@ namespace VSRS
                 FlatStyle = FlatStyle.Flat,
                 BackColor = AccentColor,
                 ForeColor = Color.White,
-                Cursor = Cursors.Hand
+                Cursor = ActionCursor
             };
             c.FlatAppearance.BorderColor = Color.FromArgb(29, 79, 124);
             c.FlatAppearance.MouseOverBackColor = Color.FromArgb(47, 119, 181);
@@ -305,7 +307,7 @@ namespace VSRS
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110F));
             var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 12, 5), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, ForeColor = TextColor };
-            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(226, 235, 244), ForeColor = TextColor, Cursor = Cursors.Hand };
+            var button = new Button { Text = "瀏覽…", Dock = DockStyle.Fill, Margin = new Padding(0), AutoSize = false, UseCompatibleTextRendering = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(226, 235, 244), ForeColor = TextColor, Cursor = ActionCursor };
             button.FlatAppearance.BorderColor = Color.FromArgb(170, 187, 204);
             button.FlatAppearance.MouseOverBackColor = Color.FromArgb(207, 222, 236);
             button.FlatAppearance.MouseDownBackColor = Color.FromArgb(187, 207, 226);
@@ -335,6 +337,73 @@ namespace VSRS
             button.FlatAppearance.MouseOverBackColor = Color.FromArgb(250, 214, 214);
             button.FlatAppearance.MouseDownBackColor = Color.FromArgb(245, 190, 190);
         }
+
+        private static Cursor CreateYellowHandCursor()
+        {
+            try
+            {
+                using (var color = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                using (var mask = new Bitmap(32, 32))
+                using (var g = Graphics.FromImage(color))
+                using (var maskGraphics = Graphics.FromImage(mask))
+                using (var path = new GraphicsPath())
+                using (var fill = new SolidBrush(Color.FromArgb(255, 226, 50)))
+                using (var outline = new Pen(Color.FromArgb(35, 35, 35), 2F))
+                {
+                    g.Clear(Color.Transparent);
+                    maskGraphics.Clear(Color.White);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    path.AddPolygon(new[] {
+                        new Point(8, 2), new Point(12, 2), new Point(12, 13),
+                        new Point(14, 11), new Point(17, 12), new Point(18, 13),
+                        new Point(20, 12), new Point(23, 14), new Point(24, 18),
+                        new Point(24, 24), new Point(21, 29), new Point(11, 29),
+                        new Point(8, 25), new Point(4, 20), new Point(5, 17),
+                        new Point(8, 19)
+                    });
+                    g.FillPath(fill, path);
+                    g.DrawPath(outline, path);
+
+                    IntPtr colorBitmap = color.GetHbitmap(Color.FromArgb(0));
+                    IntPtr maskBitmap = mask.GetHbitmap(Color.White);
+                    try
+                    {
+                        var info = new IconInfo {
+                            fIcon = false,
+                            xHotspot = 9,
+                            yHotspot = 2,
+                            hbmMask = maskBitmap,
+                            hbmColor = colorBitmap
+                        };
+                        IntPtr handle = CreateIconIndirect(ref info);
+                        if (handle != IntPtr.Zero) return new Cursor(handle);
+                    }
+                    finally
+                    {
+                        DeleteObject(colorBitmap);
+                        DeleteObject(maskBitmap);
+                    }
+                }
+            }
+            catch { }
+            return Cursors.Hand;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IconInfo
+        {
+            public bool fIcon;
+            public int xHotspot;
+            public int yHotspot;
+            public IntPtr hbmMask;
+            public IntPtr hbmColor;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CreateIconIndirect(ref IconInfo iconInfo);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr handle);
 
         private static void ResizeFlowChildren(FlowLayoutPanel p)
         {
