@@ -1,6 +1,6 @@
 # VSRS（Ventoy Standalone Restore System）
 
-VSRS 是為 USBOX 7.0 / Windows PE 設計的 C# WinForms 桌面工具，提供三個頁籤：
+VSRS 是為 USBOX 7.0 / Windows PE 設計的 C# WinForms 桌面工具，提供四個頁籤：
 
 1. 安裝 Ventoy 到指定實體硬碟，標示 USB 外接或內接/其他磁碟。
 2. 選擇含 Windows 的磁區，透過 Microsoft Disk2vhd 建立 VHDX。
@@ -15,36 +15,39 @@ Windows 10/11 支援時，程式標題列也會套用深藍灰背景、白色文
 
 頁籤與可點擊按鈕使用程式繪製的黃色手型游標及深色外框，方便在淺色和深色區域辨識；不支援自訂游標的 WinPE 會自動退回系統手型。
 
+> **重要：** 本專案仍是 Windows Forms，只是由依賴 .NET Framework 4.8 改為 .NET 8 自包含單檔發行。Microsoft 的自包含發行會將執行所需 Runtime 一起部署，因此 PE 不需安裝 .NET。第一次發行會下載 Runtime 與 NuGet 套件，需可連上網路。
+
 > **重要警告**：Ventoy 安裝與 VHDX 合併可能造成永久資料遺失。第一版請先用沒有重要資料的測試電腦及測試硬碟驗證，勿直接用於正式電腦。
 
 ## 系統需求
 
-- Visual Studio 2026（或支援 .NET Framework 4.8 的 Visual Studio）
+- Visual Studio 2026（或支援 .NET 8 的 Visual Studio）
 - 工作負載：`.NET 桌面開發`
-- 目標：.NET Framework 4.8、x64
-- USBOX 7.0 WinPE 必須含：.NET Framework、WMI、StorageWMI、DiskPart
+- 需要安裝：.NET 8 SDK
+- 目標：Windows Forms、.NET 8、win-x64、自包含單一 EXE
+- USBOX 7.0 WinPE 必須含：WMI、StorageWMI、DiskPart；不必另外安裝 .NET
 - 第三方工具：Ventoy Windows 版本、Microsoft Sysinternals Disk2vhd
 
 ## Visual Studio 2026：第一次開啟與編譯
 
 1. 在 GitHub 專案頁按綠色 **Code**，選 **Download ZIP**。
 2. 將 ZIP 解壓縮，例如 `D:\VSRS`。
-3. 啟動 Visual Studio Installer，確認已安裝 **.NET 桌面開發** 工作負載及 **.NET Framework 4.8 targeting pack**。
+3. 啟動 Visual Studio Installer，確認已安裝 **.NET 桌面開發** 工作負載及 **.NET 8 SDK**。
 4. 開啟 Visual Studio 2026，選 **開啟專案或方案**。
 5. 選取解壓縮資料夾中的 `VSRS.sln`。
-6. 上方組態選 `Release`，平台選 `x64`。
-7. 選單 **建置 → 建置方案**。成功後輸出位於：
-   `src\VSRS\bin\x64\Release\net48\`
+6. 在方案總管以滑鼠右鍵點選 **VSRS 專案**（不是方案），選 **發行**。
+7. 選取倉庫內建的 `WinPE-x64` 發行設定，再按 **發行**。
+8. 成功後，自包含單檔程式位於：`publish\win-x64\VSRS.exe`。
 
-如果平台清單沒有 x64：選 **建置 → 組態管理員**，在「使用中的方案平台」新增 `x64`，從 `Any CPU` 複製設定。
+也可以在 PowerShell 執行 `scripts\Build-Release.ps1`。請注意：只按「建置方案」產生的檔案不是正式的自包含發行檔，放入 PE 時應使用 `publish\win-x64\VSRS.exe`.
 
 ## 放入必要工具
 
 請保持 Ventoy 官方 Windows 壓縮包的檔案結構，複製到編譯輸出目錄：
 
 ```text
-net48\
-├─ VSRS.exe
+publish\win-x64\
+├─ VSRS.exe（已內含 .NET 8 Runtime）
 └─ Tools\
    ├─ disk2vhd.exe
    └─ Ventoy\
@@ -61,11 +64,11 @@ VSRS 不在 GitHub 內附第三方 EXE；請只從官方來源下載。第一次
 
 USBOX 不同版本的「外置程式」資料夾名稱可能不同，建議先用最容易回復的方式測試：
 
-1. 將整個 `net48` 輸出資料夾改名為 `VSRS`。
+1. 建立 `VSRS` 資料夾，放入 `publish\win-x64\VSRS.exe` 及完整 `Tools` 資料夾。
 2. 複製到 USBOX 可寫入的外置程式區或 USB 隨身碟。
 3. 進入 USBOX WinPE，先直接雙擊 `VSRS.exe` 測試。
 4. 確認可開啟後，再依 USBOX 的桌面捷徑功能，建立指向 `VSRS.exe` 的捷徑。
-5. 若顯示缺少 CLR/.NET，需在 USBOX 勾選或加入 WinPE-NetFx；若磁碟清單偵測失敗，需加入 WinPE-WMI 與 WinPE-StorageWMI。
+5. 自包含版本不需要 WinPE-NetFX；若磁碟清單偵測失敗，仍需在 USBOX 加入 WinPE-WMI 與 WinPE-StorageWMI。
 
 ## 三個頁籤的使用方式
 
@@ -109,7 +112,7 @@ src/VSRS/
 ├─ Models.cs         磁碟、磁區與命令結果模型
 ├─ Program.cs        程式入口
 ├─ app.manifest      強制系統管理員權限
-└─ VSRS.csproj       .NET Framework 4.8 WinForms 專案
+└─ VSRS.csproj       .NET 8 自包含 WinForms 專案
 ```
 
 ## 開發狀態與測試順序
