@@ -327,12 +327,12 @@ namespace VSRS
 
     internal static class ProcessService
     {
-        public static async Task<CommandResult> RunAsync(string fileName, string arguments, Action<string> log)
+        public static async Task<CommandResult> RunAsync(string fileName, string arguments, Action<string> log, string workingDirectory = null)
         {
             var output = new StringBuilder();
             var psi = new ProcessStartInfo(fileName, arguments) {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
-                RedirectStandardError = true, WorkingDirectory = Path.GetDirectoryName(fileName) ?? AppDomain.CurrentDomain.BaseDirectory
+                RedirectStandardError = true, WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(fileName) ?? AppDomain.CurrentDomain.BaseDirectory
             };
             using (var p = new Process { StartInfo = psi, EnableRaisingEvents = true })
             {
