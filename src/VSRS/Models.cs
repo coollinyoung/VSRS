@@ -12,7 +12,7 @@ namespace VSRS
         public bool IsBootOrSystem { get; set; }
         public string DevicePath => @"\\.\PhysicalDrive" + Number;
         public string SizeText => (Size / 1024d / 1024d / 1024d).ToString("0.0") + " GB";
-        public override string ToString() => $"磁碟 {Number}  |  {SizeText}  |  {(IsUsb ? "USB 外接" : "內接/其他")}  |  {Model}" + (IsBootOrSystem ? "  [系統保護]" : "");
+        public override string ToString() => $"磁碟 {Number}  |  {SizeText}  |  {(IsUsb ? "USB 外接" : "內接/其他")}  |  {Model}" + (IsBootOrSystem ? "  [含 Windows，高風險]" : "");
     }
 
     internal sealed class VolumeInfo
