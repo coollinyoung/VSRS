@@ -226,6 +226,105 @@ namespace VSRS
             IntPtr overlapped);
     }
 
+    internal static class VirtualDiskService
+    {
+        private const uint VirtualStorageTypeDeviceVhdx = 3;
+        private const uint CreateVirtualDiskVersion2 = 2;
+        private static readonly Guid MicrosoftVirtualDiskVendor =
+            new Guid("EC984AEC-A0F9-47E9-901F-71415A66345B");
+
+        public static Task<CommandResult> CreateDifferencingVhdxAsync(
+            string childPath, string parentPath, Action<string> log)
+        {
+            return Task.Run(() => {
+                log?.Invoke("Virtual Disk API 建立差分檔：" + childPath);
+                log?.Invoke("父 VHDX：" + parentPath);
+
+                var storageType = new VirtualStorageType {
+                    DeviceId = VirtualStorageTypeDeviceVhdx,
+                    VendorId = MicrosoftVirtualDiskVendor
+                };
+                var parameters = new CreateVirtualDiskParameters {
+                    Version = CreateVirtualDiskVersion2,
+                    UniqueId = Guid.Empty,
+                    MaximumSize = 0,
+                    BlockSizeInBytes = 0,
+                    SectorSizeInBytes = 0,
+                    PhysicalSectorSizeInBytes = 0,
+                    ParentPath = parentPath,
+                    SourcePath = null,
+                    OpenFlags = 0,
+                    ParentVirtualStorageType = default(VirtualStorageType),
+                    SourceVirtualStorageType = default(VirtualStorageType),
+                    ResiliencyGuid = Guid.Empty
+                };
+
+                try
+                {
+                    uint status = CreateVirtualDisk(
+                        ref storageType, childPath, 0, IntPtr.Zero, 0, 0,
+                        ref parameters, IntPtr.Zero, out SafeFileHandle handle);
+                    using (handle)
+                    {
+                        if (status == 0)
+                        {
+                            log?.Invoke("Virtual Disk API：建立成功。");
+                            return new CommandResult { ExitCode = 0, Output = "建立成功：" + childPath };
+                        }
+
+                        string message = new System.ComponentModel.Win32Exception(unchecked((int)status)).Message;
+                        log?.Invoke($"Virtual Disk API 失敗：錯誤碼 {status}，{message}");
+                        return new CommandResult {
+                            ExitCode = unchecked((int)status),
+                            Output = $"建立差分 VHDX 失敗。Windows 錯誤碼 {status}：{message}"
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke("Virtual Disk API 無法執行：" + ex.Message);
+                    return new CommandResult { ExitCode = -1, Output = ex.ToString() };
+                }
+            });
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct VirtualStorageType
+        {
+            public uint DeviceId;
+            public Guid VendorId;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct CreateVirtualDiskParameters
+        {
+            public uint Version;
+            public Guid UniqueId;
+            public ulong MaximumSize;
+            public uint BlockSizeInBytes;
+            public uint SectorSizeInBytes;
+            public uint PhysicalSectorSizeInBytes;
+            [MarshalAs(UnmanagedType.LPWStr)] public string ParentPath;
+            [MarshalAs(UnmanagedType.LPWStr)] public string SourcePath;
+            public uint OpenFlags;
+            public VirtualStorageType ParentVirtualStorageType;
+            public VirtualStorageType SourceVirtualStorageType;
+            public Guid ResiliencyGuid;
+        }
+
+        [DllImport("virtdisk.dll", CharSet = CharSet.Unicode)]
+        private static extern uint CreateVirtualDisk(
+            ref VirtualStorageType virtualStorageType,
+            string path,
+            uint virtualDiskAccessMask,
+            IntPtr securityDescriptor,
+            uint flags,
+            uint providerSpecificFlags,
+            ref CreateVirtualDiskParameters parameters,
+            IntPtr overlapped,
+            out SafeFileHandle handle);
+    }
+
     internal static class ProcessService
     {
         public static async Task<CommandResult> RunAsync(string fileName, string arguments, Action<string> log)
