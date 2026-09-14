@@ -158,7 +158,7 @@ namespace VSRS
         {
             var disk = diskBox.SelectedItem as DiskInfo;
             if (disk == null) { Warn("請先選擇目標硬碟。"); return; }
-            if (disk.IsBootOrSystem) { Warn("此磁碟被判定為目前系統/開機磁碟，VSRS 已禁止操作。"); return; }
+            if (disk.IsBootOrSystem) WriteLog("高風險警告：目標磁碟包含 Windows 資料夾，但已允許繼續安裝。");
             if (!disk.IsUsb && !allowInternal.Checked) { Warn("目標被判定為內接/非 USB 磁碟。若確實要安裝，請先勾選允許選項。"); return; }
             string ventoy = ToolLocator.Find("Ventoy2Disk_X64.exe");
             if (ventoy == null) { Warn("找不到 Ventoy2Disk_X64.exe。請確認它與 Ventoy2Disk.exe 位於程式旁的 Tools\\Ventoy 同一層資料夾。"); return; }
