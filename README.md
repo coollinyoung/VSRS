@@ -92,8 +92,11 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 ### 3. 差分與合併
 
-- 建立：選擇父 VHDX 與存放資料夾，不需要輸入檔名。程式固定建立兩個位階相同的單層差分檔：`基底 VHDX → temp.vhdx` 與 `基底 VHDX → temp2.vhdx`。
-- 如果指定資料夾已存在 `temp.vhdx` 或 `temp2.vhdx`，程式會停止以避免覆寫。只有 DiskPart 結束後兩個檔案都實際存在，畫面才會顯示完成。
+- 按「建立兩個差分磁碟」時，自動搜尋 USB 磁碟根目錄的 `ventoyHDD\os\base.vhdx`，不需要選擇父檔或輸出資料夾。
+- 在同一個 `ventoyHDD\os` 資料夾先刪除既有 `temp.vhdx`、`temp2.vhdx`，不存在則略過。刪除作業全部成功後，再建立兩個同位階差分檔；兩者都直接以 `base.vhdx` 為父檔，父檔不會被刪除。
+- 舊差分檔中的變更會被清除。若檔案被占用而無法刪除，程式會停止並記錄原因；失敗時可能留下部分作業結果。
+- 若找不到基底檔，或多個 USB 都包含此基底檔，會停止且不刪除任何差分檔。多來源時請只保留要操作的 USB 磁碟再重試。
+- 原生 API 成功且兩個差分檔都存在、非空，才顯示完成。
 - 建立差分檔改用 Windows 原生 Virtual Disk API（`virtdisk.dll`），不再使用 DiskPart 暫存腳本；可直接處理完整路徑並取得真正的 Windows 錯誤碼。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
 - 合併：選擇存在的子 VHDX 後，程式會依序執行 `select vdisk`、`detach vdisk noerr`、`merge vdisk depth=1`，把變更寫回直接父層。
