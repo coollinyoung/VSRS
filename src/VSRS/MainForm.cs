@@ -705,7 +705,7 @@ namespace VSRS
         private static void AddAuthorLabel(TabPage page)
         {
             var author = new Label {
-                Text = "作者：楊凱文",
+                Text = "作者:板橋國小 楊凱文 coollinyoung@gmail.com",
                 AutoSize = true,
                 ForeColor = Color.FromArgb(105, 120, 136),
                 BackColor = ContentBackColor,
