@@ -104,7 +104,7 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 右側新增兩個按鈕，皆直接使用左側已選定的目的磁區，不顯示覆蓋確認視窗：
 
 - **自動還原**：將 USB 根目錄下的 `Script\auto\os` 與 `Script\auto\ventoy` 完整複製到目的磁區根目錄。
-- **手動還原**：將 USB 根目錄下的 `Script\manule\os` 與 `Script\manule\ventoy` 完整複製到目的磁區根目錄（資料夾名稱固定為 manule）。
+- **手動還原**：將 USB 根目錄下的 `Script\manual\os` 與 `Script\manual\ventoy` 完整複製到目的磁區根目錄（資料夾名稱固定為 manual）。
 - 保留子目錄結構，直接覆蓋同名檔案（包含唯讀檔案），不刪除目的地額外的檔案。
 - 多個 USB 來源符合時，優先使用左側來源資料夾所在的 USB；無法唯一決定時會提示選擇來源。兩個來源子資料夾必須都存在才開始複製。
 - 執行期間停用操作按鈕；成功或失敗會顯示於紀錄框。這兩個按鈕只複製還原設定；原本「開始複製資料」完成後執行根目錄批次檔的流程維持原樣。
