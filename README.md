@@ -88,7 +88,7 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 
 - 程式會將具有 `Windows\System32` 的磁區標記為 `[Windows 來源，可製作 VHDX]`。
 - WinPE 內離線 Windows 不一定是 C:，請以標記、容量及標籤判斷。包含 Windows 的內接、系統或開機磁區都允許製作 VHDX，不會被鎖定。
-- 選擇輸出 VHDX 的位置與檔名後，程式會執行 `disk2vhd64.exe 來源磁區 "完整輸出路徑\\檔名.vhdx"`。完成後會檢查磁碟上的實際檔名；若 Disk2vhd 建立為大寫 `.VHDX`，程式會強制重新命名為小寫 `.vhdx`。輸出磁碟應保留足夠空間。
+- 選擇來源磁區與存放資料夾即可，輸出檔名固定為 `base.vhdx`，不需輸入檔名。程式會執行 `disk2vhd64.exe -c 來源磁區 "所選資料夾\base.vhdx"`。完成後檢查實際檔名並統一為小寫 `base.vhdx`；輸出磁碟應保留足夠空間。
 
 ### 3. 差分與合併
 
