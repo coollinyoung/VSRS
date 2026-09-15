@@ -21,7 +21,7 @@ namespace VSRS
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
         private CheckBox allowInternal;
-        private TextBox vhdOutput, parentVhd, diffOutputFolder, mergeVhd, copySourceFolder;
+        private TextBox vhdOutput, mergeVhd, copySourceFolder;
         private ComboBox copyTargetVolume;
         private Button installButton, captureButton, createDiffButton, mergeButton, copyButton, autoRestoreButton, manualRestoreButton;
 
@@ -124,10 +124,8 @@ namespace VSRS
             var page = NewPage("3. 差分建立與合併");
             var content = AddContentPanel(page);
             AddTitle(content, "建立差分 VHDX");
-            AddText(content, "父 VHDX（唯讀基底）："); parentVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
-            AddText(content, "差分檔存放資料夾（固定建立 temp.vhdx 與 temp2.vhdx）：");
-            diffOutputFolder = AddFolderPathBox(content);
-            AddText(content, "兩個檔案都是同一個基底 VHDX 的單層差分檔：temp.vhdx、temp2.vhdx。請只選資料夾，不需要輸入檔名。", Color.FromArgb(36, 83, 125));
+            AddText(content, @"自動偵測 USB 磁碟中的 ventoyHDD\os\base.vhdx，並在同一資料夾建立 temp.vhdx 與 temp2.vhdx。");
+            AddText(content, "兩個差分檔都直接使用 base.vhdx 為父檔。既有 temp.vhdx、temp2.vhdx 會先刪除，再重新建立。", Color.DarkRed);
             createDiffButton = AddButton(content, "建立兩個差分磁碟", 220); createDiffButton.Click += async (s, e) => await CreateDiffAsync();
             AddSeparator(content);
             AddTitle(content, "合併差分 VHDX 回上一層父磁碟");
@@ -316,79 +314,97 @@ namespace VSRS
             return true;
         }
 
+        private static string FindUsbBaseVhdx()
+        {
+            var usbLetters = new System.Collections.Generic.HashSet<string>(
+                HardwareService.GetVolumes().Where(v => v.IsUsb).Select(v => v.DriveLetter),
+                StringComparer.OrdinalIgnoreCase);
+            var candidates = new System.Collections.Generic.List<string>();
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!drive.IsReady) continue;
+                    string root = drive.RootDirectory.FullName;
+                    if (drive.DriveType != DriveType.Removable &&
+                        !usbLetters.Contains(root.TrimEnd('\\'))) continue;
+                    string candidate = Path.Combine(root, "ventoyHDD", "os", "base.vhdx");
+                    if (File.Exists(candidate)) candidates.Add(candidate);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            if (candidates.Count == 0)
+                throw new IOException(@"找不到 USB 磁碟中的 ventoyHDD\os\base.vhdx。請確認 USB 已連接且檔案存在。");
+            if (candidates.Count != 1)
+                throw new IOException("找到多個 USB 基底檔，未刪除任何差分檔。請只保留要操作的 USB 磁碟後重試：\r\n" +
+                                      string.Join("\r\n", candidates));
+            return candidates[0];
+        }
+
         private async Task CreateDiffAsync()
         {
-            if (!TryNormalizeVhdxPath(parentVhd.Text, true, out string parent, out string error))
-            {
-                Warn("父 VHDX：\r\n" + error); return;
-            }
-
-            string outputDirectory;
-            try
-            {
-                if (string.IsNullOrWhiteSpace(diffOutputFolder.Text))
-                {
-                    Warn("請選擇 temp.vhdx 與 temp2.vhdx 的存放資料夾。"); return;
-                }
-                outputDirectory = Path.GetFullPath(diffOutputFolder.Text.Trim());
-                Directory.CreateDirectory(outputDirectory);
-            }
-            catch (Exception ex)
-            {
-                Warn("差分檔存放資料夾無效或無法建立。\r\n" + ex.Message); return;
-            }
-
-            string tempVhd = Path.Combine(outputDirectory, "temp.vhdx");
-            string temp2Vhd = Path.Combine(outputDirectory, "temp2.vhdx");
-            if (string.Equals(parent, tempVhd, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(parent, temp2Vhd, StringComparison.OrdinalIgnoreCase))
-            {
-                Warn("基底 VHDX 不可命名為指定資料夾中的 temp.vhdx 或 temp2.vhdx。"); return;
-            }
-            if (File.Exists(tempVhd) || File.Exists(temp2Vhd))
-            {
-                string existing = string.Join("\r\n", new[] { tempVhd, temp2Vhd }.Where(File.Exists));
-                Warn("為避免覆寫，建立作業已停止。請先移走或刪除下列既有檔案：\r\n" + existing); return;
-            }
-
-            parentVhd.Text = parent;
-            diffOutputFolder.Text = outputDirectory;
-            WriteLog("差分基底檔：" + parent);
-            WriteLog("單層差分 temp.vhdx：" + tempVhd);
-            WriteLog("單層差分 temp2.vhdx：" + temp2Vhd);
-
             await RunBusyAsync(async () => {
-                CommandResult first = await VirtualDiskService.CreateDifferencingVhdxAsync(
-                    tempVhd, parent, WriteLog);
-                if (!first.Success || !File.Exists(tempVhd))
+                try
                 {
-                    string detail = first.Output + Environment.NewLine +
-                                    "指定資料夾中未找到 temp.vhdx。";
-                    WriteLog(detail);
-                    return new CommandResult {
-                        ExitCode = first.Success ? -2 : first.ExitCode,
-                        Output = detail
+                    string parent = await Task.Run(() => FindUsbBaseVhdx());
+                    string directory = Path.GetDirectoryName(parent);
+                    string[] children = {
+                        Path.Combine(directory, "temp.vhdx"),
+                        Path.Combine(directory, "temp2.vhdx")
                     };
+                    WriteLog("自動偵測基底：" + parent);
+                    // 確認父檔可讀，以及兩個目標不是資料夾或連結，再開始刪除。
+                    using (var input = File.Open(parent, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        if (input.Length == 0) throw new IOException("base.vhdx 是空檔案，已停止作業。");
+                    }
+                    foreach (string child in children)
+                    {
+                        if (Directory.Exists(child))
+                            throw new IOException("差分檔路徑已被資料夾占用：" + child);
+                        if (File.Exists(child) &&
+                            (File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                            throw new IOException("差分檔是連結，已停止作業：" + child);
+                    }
+                    // 必須先完成兩個舊差分檔的刪除，才建立任何新差分檔。
+                    foreach (string child in children)
+                    {
+                        if (!File.Exists(child)) continue;
+                        File.SetAttributes(child, FileAttributes.Normal);
+                        File.Delete(child);
+                        if (File.Exists(child)) throw new IOException("無法刪除舊差分檔：" + child);
+                        WriteLog("已刪除舊差分檔：" + child);
+                    }
+                    foreach (string child in children)
+                    {
+                        CommandResult result = await VirtualDiskService.CreateDifferencingVhdxAsync(
+                            child, parent, WriteLog);
+                        if (!result.Success)
+                        {
+                            result.Output = "建立失敗：" + child + "\r\n" + result.Output;
+                            WriteLog(result.Output);
+                            return result;
+                        }
+                        if (!File.Exists(child) || new FileInfo(child).Length == 0)
+                        {
+                            string message = "建立結果驗證失敗，檔案不存在或為空：" + child;
+                            WriteLog(message);
+                            return new CommandResult { ExitCode = -2, Output = message };
+                        }
+                        WriteLog("檔案確認成功：" + child);
+                    }
+                    string completed = "已在 " + directory + " 建立 temp.vhdx 與 temp2.vhdx，兩者父檔均為 base.vhdx。";
+                    WriteLog(completed);
+                    return new CommandResult { ExitCode = 0, Output = completed };
                 }
-                WriteLog("檔案確認 temp.vhdx：已建立");
-
-                CommandResult second = await VirtualDiskService.CreateDifferencingVhdxAsync(
-                    temp2Vhd, parent, WriteLog);
-                if (!second.Success || !File.Exists(temp2Vhd))
+                catch (Exception ex)
                 {
-                    string detail = second.Output + Environment.NewLine +
-                                    "temp.vhdx 已建立，但指定資料夾中未找到 temp2.vhdx。";
-                    WriteLog(detail);
-                    return new CommandResult {
-                        ExitCode = second.Success ? -2 : second.ExitCode,
-                        Output = detail
-                    };
+                    string message = "差分重建作業停止：" + ex.Message +
+                        "\r\n若已開始刪除或建立，資料夾可能只剩部分檔案；請查看紀錄。";
+                    WriteLog(message);
+                    return new CommandResult { ExitCode = -1, Output = message };
                 }
-                WriteLog("檔案確認 temp2.vhdx：已建立");
-                return new CommandResult {
-                    ExitCode = 0,
-                    Output = "temp.vhdx 與 temp2.vhdx 均已建立。"
-                };
             });
         }
 
