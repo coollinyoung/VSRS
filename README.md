@@ -99,7 +99,8 @@ USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷�
 - 原生 API 成功且兩個差分檔都存在、非空，才顯示完成。
 - 建立差分檔改用 Windows 原生 Virtual Disk API（`virtdisk.dll`），不再使用 DiskPart 暫存腳本；可直接處理完整路徑並取得真正的 Windows 錯誤碼。
 - 父 VHDX 移動位置後，子磁碟的父路徑關聯可能失效。
-- 合併：選擇存在的子 VHDX 後，程式會依序執行 `select vdisk`、`detach vdisk noerr`、`merge vdisk depth=1`，把變更寫回直接父層。
+- 合併：選擇子 VHDX，程式透過 Windows 原生 Virtual Disk API 解析直接父檔並合併一層。必須先卸載相關 VHDX。僅在 API 確認合併成功並關閉檔案控制代碼後，刪除父檔目錄中的 `temp.vhdx`、`temp2.vhdx`，再以更新後的父檔建立兩個同位階差分檔；兩個新檔存在且非空才顯示完成。
+- 合併失敗時不刪除差分檔；合併成功但重建失敗時，會明確記錄父檔已更新、重建未完成。只清除父檔目錄中的兩個固定檔名，不搜尋或刪除其他位置的子檔。
 - 合併會修改父 VHDX，並可能使同一父檔的其他差分磁碟失效。執行前請關閉使用該 VHDX 的程式，並備份父、子檔案。
 
 ### 4. 複製 VentoyHDD 資料
