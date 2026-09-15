@@ -165,7 +165,7 @@ namespace VSRS
             autoRestoreButton = AddButton(actions, "自動還原", 180);
             manualRestoreButton = AddButton(actions, "手動還原", 180);
             autoRestoreButton.Click += async (s, e) => await CopyRestoreModeAsync("auto");
-            manualRestoreButton.Click += async (s, e) => await CopyRestoreModeAsync("manule");
+            manualRestoreButton.Click += async (s, e) => await CopyRestoreModeAsync("manual");
             actions.ClientSizeChanged += (s, e) => {
                 ResizeFlowChildren(actions);
                 int width = Math.Max(100, actions.ClientSize.Width - actions.Padding.Horizontal - 24);
