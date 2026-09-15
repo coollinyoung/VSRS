@@ -12,7 +12,8 @@ namespace VSRS
     internal sealed class MainForm : Form
     {
         private static readonly Color WindowBackColor = Color.FromArgb(238, 243, 248);
-        private static readonly Color ContentBackColor = Color.FromArgb(248, 250, 252);
+        // 淺藍灰底色與白色路徑欄、下拉欄形成清楚對比。
+        private static readonly Color ContentBackColor = Color.FromArgb(210, 223, 236);
         private static readonly Color TabDarkColor = Color.FromArgb(38, 52, 69);
         private static readonly Color AccentColor = Color.FromArgb(36, 99, 155);
         private static readonly Color TextColor = Color.FromArgb(31, 45, 61);
