@@ -112,8 +112,8 @@ namespace VSRS
             AddTitle(content, "選擇包含 Windows 的來源磁區");
             volumeBox = AddCombo(content);
             AddText(content, "程式會優先標示含有 Windows\\System32 的磁區。WinPE 中原本的 C: 可能會變成 D: 或其他代號，請不要只看磁碟代號。", Color.DarkBlue);
-            AddText(content, "輸出 VHDX：");
-            vhdOutput = AddPathBox(content, true, "VHDX 檔案|*.vhdx");
+            AddText(content, "base.vhdx 存放資料夾（檔名固定）：");
+            vhdOutput = AddFolderPathBox(content);
             captureButton = AddButton(content, "開始建立 VHDX", 220);
             captureButton.Click += async (s, e) => await CaptureAsync();
             return page;
@@ -203,26 +203,25 @@ namespace VSRS
         private async Task CaptureAsync()
         {
             var volume = volumeBox.SelectedItem as VolumeInfo;
-            if (volume == null || string.IsNullOrWhiteSpace(vhdOutput.Text)) { Warn("請選擇來源磁區及輸出檔案。"); return; }
+            if (volume == null || string.IsNullOrWhiteSpace(vhdOutput.Text)) { Warn("請選擇來源磁區及 base.vhdx 存放資料夾。"); return; }
 
             string disk2vhd = ToolLocator.Find("disk2vhd64.exe");
             if (disk2vhd == null) { Warn("找不到 disk2vhd64.exe。x64 WinPE 必須使用 64 位元版本，請從 Microsoft Sysinternals 下載後放入 Tools 資料夾。"); return; }
 
+            string outputDirectory;
             string output;
-            try { output = Path.GetFullPath(vhdOutput.Text.Trim()); }
-            catch (Exception ex) { Warn("VHDX 輸出路徑無效。\r\n" + ex.Message); return; }
-            if (!string.Equals(Path.GetExtension(output), ".vhdx", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                Warn("輸出檔案必須使用 .vhdx 副檔名。"); return;
+                outputDirectory = Path.GetFullPath(vhdOutput.Text.Trim());
+                Directory.CreateDirectory(outputDirectory);
+                output = Path.Combine(outputDirectory, "base.vhdx");
             }
-
-            // 無論使用者或檔案選擇視窗輸入 .VHDX／.Vhdx，都統一使用小寫 .vhdx。
-            output = Path.ChangeExtension(output, ".vhdx");
-
-            string outputDirectory = Path.GetDirectoryName(output);
-            if (string.IsNullOrWhiteSpace(outputDirectory)) { Warn("請指定完整的 VHDX 輸出資料夾及檔名。"); return; }
-            Directory.CreateDirectory(outputDirectory);
-            vhdOutput.Text = output;
+            catch (Exception ex)
+            {
+                Warn("base.vhdx 存放資料夾無效或無法建立。\r\n" + ex.Message); return;
+            }
+            vhdOutput.Text = outputDirectory;
+            WriteLog("固定輸出檔案：" + output);
 
             // Disk2vhd 不接受 -accepteula 命令列參數；改以 Sysinternals 標準登錄值接受 EULA。
             try
@@ -271,7 +270,7 @@ namespace VSRS
                         WriteLog("輸出副檔名確認為小寫 .vhdx：" + output);
                     }
 
-                    vhdOutput.Text = output;
+                    vhdOutput.Text = outputDirectory;
                     return result;
                 }
                 catch (Exception ex)
