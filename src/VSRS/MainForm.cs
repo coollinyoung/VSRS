@@ -23,7 +23,7 @@ namespace VSRS
         private CheckBox allowInternal;
         private TextBox vhdOutput, parentVhd, diffOutputFolder, mergeVhd, copySourceFolder;
         private ComboBox copyTargetVolume;
-        private Button installButton, captureButton, createDiffButton, mergeButton, copyButton;
+        private Button installButton, captureButton, createDiffButton, mergeButton, copyButton, autoRestoreButton, manualRestoreButton;
 
         public MainForm()
         {
@@ -142,6 +142,35 @@ namespace VSRS
         {
             var page = NewPage("4. 複製 VentoyHDD 資料");
             var content = AddContentPanel(page);
+            // 保留左側捲動內容，右側獨立放置兩個還原按鈕，避免互相遮擋。
+            var columns = new TableLayoutPanel {
+                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+                BackColor = ContentBackColor
+            };
+            columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70F));
+            columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30F));
+            columns.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            page.Controls.Remove(content);
+            columns.Controls.Add(content, 0, 0);
+            var actions = new FlowLayoutPanel {
+                Dock = DockStyle.Fill, AutoScroll = true,
+                FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                Padding = new Padding(12, 22, 12, 48), BackColor = ContentBackColor
+            };
+            columns.Controls.Add(actions, 1, 0);
+            page.Controls.Add(columns);
+            columns.SendToBack();
+            AddTitle(actions, "還原模式");
+            AddText(actions, "直接覆蓋左側所選目的磁區的 os 與 ventoy 資料夾。");
+            autoRestoreButton = AddButton(actions, "自動還原", 180);
+            manualRestoreButton = AddButton(actions, "手動還原", 180);
+            autoRestoreButton.Click += async (s, e) => await CopyRestoreModeAsync("auto");
+            manualRestoreButton.Click += async (s, e) => await CopyRestoreModeAsync("manule");
+            actions.ClientSizeChanged += (s, e) => {
+                ResizeFlowChildren(actions);
+                int width = Math.Max(100, actions.ClientSize.Width - actions.Padding.Horizontal - 24);
+                autoRestoreButton.Width = manualRestoreButton.Width = width;
+            };
             AddTitle(content, "複製隨身碟中的 VentoyHDD 資料");
             AddText(content, "來源為 USB 隨身碟根目錄下的 ventoyhdd 資料夾。程式會複製其中所有檔案及子資料夾，並保持原本目錄結構。", Color.FromArgb(36, 83, 125));
             AddText(content, "來源資料夾：");
@@ -383,6 +412,102 @@ namespace VSRS
             }, WriteLog));
         }
 
+        private async Task CopyRestoreModeAsync(string mode)
+        {
+            var target = copyTargetVolume.SelectedItem as VolumeInfo;
+            if (target == null) { Warn("請先選擇左側的目的磁區。"); return; }
+            string destination = Path.GetPathRoot(target.DriveLetter + "\\");
+            string preferredRoot = null;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(copySourceFolder.Text))
+                    preferredRoot = Path.GetPathRoot(Path.GetFullPath(copySourceFolder.Text.Trim()));
+            }
+            catch { }
+
+            await RunBusyAsync(async () => {
+                return await Task.Run(() => {
+                    try
+                    {
+                        var usbLetters = new System.Collections.Generic.HashSet<string>(
+                            HardwareService.GetVolumes().Where(v => v.IsUsb).Select(v => v.DriveLetter),
+                            StringComparer.OrdinalIgnoreCase);
+                        var candidates = new System.Collections.Generic.List<string>();
+                        foreach (DriveInfo drive in DriveInfo.GetDrives())
+                        {
+                            try
+                            {
+                                if (!drive.IsReady) continue;
+                                string root = drive.RootDirectory.FullName;
+                                if (drive.DriveType != DriveType.Removable &&
+                                    !usbLetters.Contains(root.TrimEnd('\\'))) continue;
+                                if (string.Equals(root, destination, StringComparison.OrdinalIgnoreCase)) continue;
+                                string source = Path.Combine(root, "Script", mode);
+                                if (Directory.Exists(Path.Combine(source, "os")) &&
+                                    Directory.Exists(Path.Combine(source, "ventoy")))
+                                    candidates.Add(source);
+                            }
+                            catch (IOException) { }
+                            catch (UnauthorizedAccessException) { }
+                        }
+                        string selected = candidates.FirstOrDefault(p =>
+                            string.Equals(Path.GetPathRoot(p), preferredRoot, StringComparison.OrdinalIgnoreCase));
+                        if (selected == null && candidates.Count == 1) selected = candidates[0];
+                        if (selected == null)
+                        {
+                            string message = candidates.Count == 0
+                                ? $"找不到 USB 隨身碟中的 Script\\{mode}\\os 與 Script\\{mode}\\ventoy，未複製任何檔案。"
+                                : "找到多個 USB 還原來源，請先在左側來源資料夾選擇要使用的 USB 隨身碟中的 ventoyhdd 資料夾。";
+                            WriteLog(message);
+                            return new CommandResult { ExitCode = -1, Output = message };
+                        }
+                        WriteLog($"還原模式：{mode}；來源：{selected}；目的：{destination}");
+                        int count = 0;
+                        foreach (string folder in new[] { "os", "ventoy" })
+                            CopyRestoreTree(Path.Combine(selected, folder), Path.Combine(destination, folder), ref count);
+                        string completed = $"還原模式 {mode} 複製完成，共覆蓋或新增 {count} 個檔案。";
+                        WriteLog(completed);
+                        return new CommandResult { ExitCode = 0, Output = completed };
+                    }
+                    catch (Exception ex)
+                    {
+                        string message = "還原資料複製失敗（可能已有部分檔案完成覆蓋）：\r\n" + ex.Message;
+                        WriteLog(message);
+                        return new CommandResult { ExitCode = -1, Output = message };
+                    }
+                });
+            });
+        }
+
+        private void CopyRestoreTree(string source, string destination, ref int count)
+        {
+            // 不追蹤連結，避免寫入所選資料夾以外的位置。
+            if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("來源資料夾是連結，無法複製：" + source);
+            if (Directory.Exists(destination) &&
+                (File.GetAttributes(destination) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("目的資料夾是連結，無法複製：" + destination);
+            Directory.CreateDirectory(destination);
+            foreach (string file in Directory.GetFiles(source))
+            {
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("來源檔案是連結，無法複製：" + file);
+                string output = Path.Combine(destination, Path.GetFileName(file));
+                if (File.Exists(output))
+                {
+                    FileAttributes attributes = File.GetAttributes(output);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("目的檔案是連結，無法覆蓋：" + output);
+                    File.SetAttributes(output, FileAttributes.Normal);
+                }
+                File.Copy(file, output, true);
+                count++;
+                WriteLog("已覆蓋或新增：" + output);
+            }
+            foreach (string directory in Directory.GetDirectories(source))
+                CopyRestoreTree(directory, Path.Combine(destination, Path.GetFileName(directory)), ref count);
+        }
+
         private async Task CopyVentoyDataAsync()
         {
             string source = copySourceFolder.Text.Trim();
@@ -523,7 +648,7 @@ namespace VSRS
             finally { SetBusy(false); }
         }
 
-        private void SetBusy(bool busy) { installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = copyButton.Enabled = !busy; UseWaitCursor = busy; }
+        private void SetBusy(bool busy) { installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = copyButton.Enabled = autoRestoreButton.Enabled = manualRestoreButton.Enabled = !busy; UseWaitCursor = busy; }
         private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
