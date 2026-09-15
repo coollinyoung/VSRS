@@ -46,7 +46,11 @@ namespace VSRS
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.Cursor = ActionCursor;
             tabs.DrawItem += DrawTabItem;
-            tabs.SelectedIndexChanged += (s, e) => tabs.Invalidate();
+            tabs.SelectedIndexChanged += (s, e) => {
+                tabs.Invalidate();
+                if (tabs.SelectedIndex == 3 && copyTargetVolume != null)
+                    RefreshCopyTargetVolumes();
+            };
             tabs.TabPages.Add(BuildVentoyTab());
             tabs.TabPages.Add(BuildCaptureTab());
             tabs.TabPages.Add(BuildDifferencingTab());
@@ -629,20 +633,41 @@ namespace VSRS
             else if (showResult) Warn("找不到任何磁碟根目錄下的 ventoyhdd 資料夾。");
         }
 
+        private void RefreshCopyTargetVolumes()
+        {
+            copyTargetVolume.BeginUpdate();
+            try
+            {
+                // 每次重新讀取硬碟與磁區資訊，不沿用舊清單。
+                copyTargetVolume.Items.Clear();
+                foreach (var volume in HardwareService.GetVolumes())
+                    copyTargetVolume.Items.Add(volume);
+                if (copyTargetVolume.Items.Count > 0)
+                {
+                    int preferred = Enumerable.Range(0, copyTargetVolume.Items.Count)
+                        .FirstOrDefault(i => string.Equals(
+                            ((VolumeInfo)copyTargetVolume.Items[i]).Label, "Ventoy",
+                            StringComparison.OrdinalIgnoreCase));
+                    copyTargetVolume.SelectedIndex = preferred;
+                }
+                WriteLog($"頁籤 4 目的磁區已更新：{copyTargetVolume.Items.Count} 個磁區。");
+            }
+            catch (Exception ex)
+            {
+                copyTargetVolume.Items.Clear();
+                WriteLog("頁籤 4 目的磁區偵測失敗：" + ex.Message);
+                Warn("無法更新目的磁區，請確認磁碟已連接。\r\n" + ex.Message);
+            }
+            finally { copyTargetVolume.EndUpdate(); }
+        }
+
         private void RefreshHardware()
         {
             try
             {
                 diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks()) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
                 volumeBox.Items.Clear(); foreach (var v in HardwareService.GetVolumes()) volumeBox.Items.Add(v); if (volumeBox.Items.Count > 0) volumeBox.SelectedIndex = 0;
-                copyTargetVolume.Items.Clear();
-                foreach (var v in HardwareService.GetVolumes()) copyTargetVolume.Items.Add(v);
-                if (copyTargetVolume.Items.Count > 0)
-                {
-                    int preferred = Enumerable.Range(0, copyTargetVolume.Items.Count)
-                        .FirstOrDefault(i => string.Equals(((VolumeInfo)copyTargetVolume.Items[i]).Label, "Ventoy", StringComparison.OrdinalIgnoreCase));
-                    copyTargetVolume.SelectedIndex = preferred;
-                }
+                RefreshCopyTargetVolumes();
                 DetectVentoyHddSource(false);
                 WriteLog($"偵測完成：{diskBox.Items.Count} 顆磁碟，{volumeBox.Items.Count} 個本機磁區。");
             }
