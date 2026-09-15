@@ -436,8 +436,9 @@ namespace VSRS
             }
             catch { }
 
+            bool completedSuccessfully = false;
             await RunBusyAsync(async () => {
-                return await Task.Run(() => {
+                CommandResult result = await Task.Run(() => {
                     try
                     {
                         var usbLetters = new System.Collections.Generic.HashSet<string>(
@@ -487,7 +488,12 @@ namespace VSRS
                         return new CommandResult { ExitCode = -1, Output = message };
                     }
                 });
+                completedSuccessfully = result.Success;
+                return result;
             });
+            if (completedSuccessfully)
+                MessageBox.Show(this, "請拔除隨身碟，重新開機", "還原完成",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void CopyRestoreTree(string source, string destination, ref int count)
