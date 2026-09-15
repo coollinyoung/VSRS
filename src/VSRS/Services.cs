@@ -233,6 +233,126 @@ namespace VSRS
         private static readonly Guid MicrosoftVirtualDiskVendor =
             new Guid("EC984AEC-A0F9-47E9-901F-71415A66345B");
 
+        // Version 1 open parameters: read/write child and its immediate parent.
+        [StructLayout(LayoutKind.Sequential)]
+        private struct OpenParameters { public uint Version; public uint RWDepth; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MergeParameters { public uint Version; public uint MergeDepth; }
+
+        [DllImport("virtdisk.dll", CharSet = CharSet.Unicode)]
+        private static extern uint OpenVirtualDisk(ref VirtualStorageType type, string path,
+            uint access, uint flags, ref OpenParameters parameters, out SafeFileHandle handle);
+        [DllImport("virtdisk.dll")]
+        private static extern uint GetVirtualDiskInformation(SafeFileHandle handle,
+            ref uint size, IntPtr information, out uint used);
+        [DllImport("virtdisk.dll")]
+        private static extern uint MergeVirtualDisk(SafeFileHandle handle, uint flags,
+            ref MergeParameters parameters, IntPtr overlapped);
+
+        private static void CheckStatus(uint status)
+        {
+            if (status != 0) throw new System.ComponentModel.Win32Exception(unchecked((int)status));
+        }
+
+        private static string ReadParentPath(SafeFileHandle handle)
+        {
+            // GET_VIRTUAL_DISK_INFO has an 8-byte aligned union.
+            uint size = 65548;
+            IntPtr buffer = Marshal.AllocHGlobal((int)size);
+            try
+            {
+                Marshal.WriteInt32(buffer, 3); // GET_VIRTUAL_DISK_INFO_PARENT_LOCATION
+                CheckStatus(GetVirtualDiskInformation(handle, ref size, buffer, out uint used));
+                if (Marshal.ReadInt32(buffer, 8) == 0)
+                    throw new IOException("無法解析所選差分檔的父檔，已停止作業。");
+                string parent = Marshal.PtrToStringUni(IntPtr.Add(buffer, 12));
+                if (string.IsNullOrWhiteSpace(parent) || !Path.IsPathFullyQualified(parent) || !File.Exists(parent))
+                    throw new IOException("找不到有效的父 VHDX：" + parent);
+                return Path.GetFullPath(parent);
+            }
+            finally { Marshal.FreeHGlobal(buffer); }
+        }
+
+        public static Task<CommandResult> MergeAndRebuildAsync(string child, Action<string> log)
+        {
+            return Task.Run(async () => {
+                bool merged = false;
+                string stage = "開啟子檔與確認父檔";
+                try
+                {
+                    var type = new VirtualStorageType {
+                        DeviceId = VirtualStorageTypeDeviceVhdx, VendorId = MicrosoftVirtualDiskVendor
+                    };
+                    var open = new OpenParameters { Version = 1, RWDepth = 2 };
+                    // GET_INFO | METAOPS; never trust a shell exit code before deleting files.
+                    uint status = OpenVirtualDisk(ref type, child, 0x00080000 | 0x00200000,
+                        0, ref open, out SafeFileHandle handle);
+                    CheckStatus(status);
+                    string parent;
+                    string[] children;
+                    using (handle)
+                    {
+                        parent = ReadParentPath(handle);
+                        if (!string.Equals(Path.GetExtension(parent), ".vhdx", StringComparison.OrdinalIgnoreCase))
+                            throw new IOException("父檔必須是 VHDX。");
+                        string directory = Path.GetDirectoryName(parent);
+                        children = new[] { Path.Combine(directory, "temp.vhdx"), Path.Combine(directory, "temp2.vhdx") };
+                        foreach (string path in children)
+                        {
+                            if (string.Equals(path, parent, StringComparison.OrdinalIgnoreCase))
+                                throw new IOException("父檔名稱與重建目標相同，已停止以避免刪除父檔：" + parent);
+                            if (Directory.Exists(path))
+                                throw new IOException("重建路徑已被資料夾占用：" + path);
+                            if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                                throw new IOException("重建目標是連結，已停止：" + path);
+                        }
+                        log?.Invoke("實際父檔：" + parent);
+                        stage = "合併子檔至直接父檔";
+                        var merge = new MergeParameters { Version = 1, MergeDepth = 1 };
+                        CheckStatus(MergeVirtualDisk(handle, 0, ref merge, IntPtr.Zero));
+                        merged = true;
+                        log?.Invoke("原生 API 確認合併成功，準備重建兩個差分檔。");
+                    } // Close the merged child before deleting it.
+                    stage = "刪除父檔目錄中的舊差分檔";
+                    foreach (string path in children)
+                    {
+                        if (!File.Exists(path)) continue;
+                        File.SetAttributes(path, FileAttributes.Normal);
+                        File.Delete(path);
+                        if (File.Exists(path)) throw new IOException("刪除失敗：" + path);
+                        log?.Invoke("已刪除：" + path);
+                    }
+                    stage = "重新建立差分檔";
+                    foreach (string path in children)
+                    {
+                        CommandResult result = await CreateDifferencingVhdxAsync(path, parent, log);
+                        if (!result.Success)
+                        {
+                            result.Output = "父檔已合併成功，但重建失敗：" + path + "\r\n" + result.Output;
+                            log?.Invoke(result.Output);
+                            return result;
+                        }
+                        if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                            throw new IOException("重建檔案不存在或為空：" + path);
+                    }
+                    string message = "合併及重建完成：temp.vhdx、temp2.vhdx 均直接以 " + parent + " 為父檔。";
+                    log?.Invoke(message);
+                    return new CommandResult { ExitCode = 0, Output = message };
+                }
+                catch (Exception ex)
+                {
+                    string message = stage + "失敗：" + ex.Message + "\r\n" +
+                        (merged ? "父檔已合併成功，重建未完成，可能留下部分差分檔。"
+                                : "合併尚未成功；未執行舊差分檔刪除或重建。請先確認相關 VHDX 已卸載且未被占用。");
+                    log?.Invoke(message);
+                    return new CommandResult {
+                        ExitCode = ex is System.ComponentModel.Win32Exception win32 ? win32.NativeErrorCode : -1,
+                        Output = message
+                    };
+                }
+            });
+        }
+
         public static Task<CommandResult> CreateDifferencingVhdxAsync(
             string childPath, string parentPath, Action<string> log)
         {
