@@ -130,7 +130,7 @@ namespace VSRS
             AddSeparator(content);
             AddTitle(content, "合併差分 VHDX 回上一層父磁碟");
             AddText(content, "要合併的子 VHDX："); mergeVhd = AddPathBox(content, false, "VHDX 檔案|*.vhdx");
-            AddText(content, "合併會修改父 VHDX，且不可取消。請先備份父磁碟與子磁碟。", Color.DarkRed);
+            AddText(content, "合併成功後會刪除父檔目錄中的 temp.vhdx、temp2.vhdx 並重新建立。請先卸載相關 VHDX 並備份；未合併的差分內容會清除。", Color.DarkRed);
             mergeButton = AddButton(content, "合併到父磁碟（危險操作）", 270); StyleDangerButton(mergeButton);
             mergeButton.Click += async (s, e) => await MergeAsync();
             return page;
@@ -415,16 +415,11 @@ namespace VSRS
             }
             mergeVhd.Text = child;
             if (MessageBox.Show(
-                "這會把子磁碟變更寫回直接父層 VHDX，並可能使同一父檔的其他差分磁碟失效。\r\n\r\n請先關閉使用此 VHDX 的程式並備份父、子檔案。確定繼續？",
+                "這會把所選子磁碟變更寫回直接父層 VHDX。成功後，會刪除父檔目錄中的 temp.vhdx 與 temp2.vhdx，並重新建立兩個同位階差分檔；未合併的差分內容會被清除。\r\n\r\n請先關閉使用此 VHDX 的程式並備份父、子檔案。確定繼續？",
                 "合併確認", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
 
             WriteLog("準備合併子 VHDX：" + child);
-            await RunBusyAsync(() => ProcessService.RunDiskPartAsync(new[] {
-                $"select vdisk file=\"{child}\"",
-                "detach vdisk noerr",
-                "merge vdisk depth=1",
-                "exit"
-            }, WriteLog));
+            await RunBusyAsync(() => VirtualDiskService.MergeAndRebuildAsync(child, WriteLog));
         }
 
         private async Task CopyRestoreModeAsync(string mode)
