@@ -10,6 +10,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>recovery.ico</ApplicationIcon>
 
     <!-- WinPE：將 .NET 8 Runtime 封裝進單一 x64 EXE，不需在 PE 安裝 .NET。 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -22,4 +23,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="recovery.ico" LogicalName="VSRS.recovery.ico" />
+  </ItemGroup>
 </Project>

@@ -29,6 +29,14 @@ namespace VSRS
         public MainForm()
         {
             Text = "VSRS - Ventoy 單機還原系統";
+            using (var iconStream = typeof(MainForm).Assembly.GetManifestResourceStream("VSRS.recovery.ico"))
+            {
+                if (iconStream != null)
+                {
+                    using (var embeddedIcon = new Icon(iconStream))
+                        Icon = (Icon)embeddedIcon.Clone();
+                }
+            }
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             Width = 1040; Height = 780; MinimumSize = new Size(760, 620);
