@@ -48,6 +48,8 @@ namespace VSRS
             tabs.DrawItem += DrawTabItem;
             tabs.SelectedIndexChanged += (s, e) => {
                 tabs.Invalidate();
+                if (tabs.SelectedIndex == 1 && volumeBox != null)
+                    RefreshCaptureVolumes();
                 if (tabs.SelectedIndex == 3 && copyTargetVolume != null)
                     RefreshCopyTargetVolumes();
             };
@@ -661,12 +663,37 @@ namespace VSRS
             finally { copyTargetVolume.EndUpdate(); }
         }
 
+        private void RefreshCaptureVolumes()
+        {
+            volumeBox.BeginUpdate();
+            try
+            {
+                volumeBox.Items.Clear();
+                foreach (var volume in HardwareService.GetVolumes())
+                    volumeBox.Items.Add(volume);
+                if (volumeBox.Items.Count > 0)
+                {
+                    int preferred = Enumerable.Range(0, volumeBox.Items.Count)
+                        .FirstOrDefault(i => ((VolumeInfo)volumeBox.Items[i]).HasWindows);
+                    volumeBox.SelectedIndex = preferred;
+                }
+                WriteLog($"頁籤 2 來源磁區已更新：{volumeBox.Items.Count} 個磁區。");
+            }
+            catch (Exception ex)
+            {
+                volumeBox.Items.Clear();
+                WriteLog("頁籤 2 來源磁區偵測失敗：" + ex.Message);
+                Warn("無法更新來源磁區，請確認磁碟已連接。\r\n" + ex.Message);
+            }
+            finally { volumeBox.EndUpdate(); }
+        }
+
         private void RefreshHardware()
         {
             try
             {
                 diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks()) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
-                volumeBox.Items.Clear(); foreach (var v in HardwareService.GetVolumes()) volumeBox.Items.Add(v); if (volumeBox.Items.Count > 0) volumeBox.SelectedIndex = 0;
+                RefreshCaptureVolumes();
                 RefreshCopyTargetVolumes();
                 DetectVentoyHddSource(false);
                 WriteLog($"偵測完成：{diskBox.Items.Count} 顆磁碟，{volumeBox.Items.Count} 個本機磁區。");
