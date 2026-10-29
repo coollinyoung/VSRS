@@ -23,20 +23,35 @@ namespace VSRS
         private const uint IoctlDiskGetLengthInfo = 0x0007405C;
         private const uint IoctlVolumeGetVolumeDiskExtents = 0x00560000;
 
-        public static List<DiskInfo> GetDisks()
+        public static List<DiskInfo> GetDisks(Action<string> log = null)
         {
             var windowsDisks = FindWindowsDiskNumbers();
             var result = new List<DiskInfo>();
 
-            for (int number = 0; number < 64; number++)
+            foreach (int number in EnumerateDiskNumbers(log))
             {
                 string path = @"\\.\PhysicalDrive" + number;
                 using (var handle = OpenDevice(path))
                 {
-                    if (handle == null || handle.IsInvalid) continue;
+                    if (handle == null || handle.IsInvalid)
+                    {
+                        int error = Marshal.GetLastWin32Error();
+                        log?.Invoke($"磁碟 {number} 已列舉但無法讀取，Windows 錯誤碼：{error}");
+                        result.Add(new DiskInfo { Number = number, Model = "資訊無法讀取",
+                            BusType = "Unknown", IsBootOrSystem = windowsDisks.Contains(number) });
+                        continue;
+                    }
 
                     ulong size = QueryDiskSize(handle);
+                    if (size == 0)
+                    {
+                        using (var readHandle = CreateFile(path, 0x80000000, FileShareRead | FileShareWrite,
+                            IntPtr.Zero, OpenExisting, 0, IntPtr.Zero))
+                            if (!readHandle.IsInvalid) size = QueryDiskSize(readHandle);
+                    }
                     DeviceDescriptor descriptor = QueryDeviceDescriptor(handle);
+                    if (size == 0 || string.IsNullOrWhiteSpace(descriptor.Model))
+                        log?.Invoke($"磁碟 {number} 回報資訊不完整，仍保留於清單。");
                     result.Add(new DiskInfo {
                         Number = number,
                         Model = string.IsNullOrWhiteSpace(descriptor.Model) ? "未知裝置" : descriptor.Model,
@@ -50,6 +65,36 @@ namespace VSRS
 
             return result.OrderBy(x => x.Number).ToList();
         }
+
+        private static IEnumerable<int> EnumerateDiskNumbers(Action<string> log)
+        {
+            // 列舉已註冊的 PhysicalDrive，支援非連續及大於 63 的磁碟編號。
+            for (int capacity = 32768; capacity <= 1048576; capacity *= 2)
+            {
+                char[] buffer = new char[capacity];
+                uint length = QueryDosDevice(null, buffer, (uint)capacity);
+                if (length != 0)
+                {
+                    var numbers = new SortedSet<int>();
+                    foreach (string name in new string(buffer, 0, (int)length).Split('\0'))
+                        if (name.StartsWith("PhysicalDrive", StringComparison.OrdinalIgnoreCase) &&
+                            int.TryParse(name.Substring("PhysicalDrive".Length), out int number) && number >= 0)
+                            numbers.Add(number);
+                    if (numbers.Count > 0) return numbers;
+                    break;
+                }
+                if (Marshal.GetLastWin32Error() != 122) break;
+            }
+            log?.Invoke("Windows 裝置名稱列舉未取得磁碟，改用相容性探測。");
+            var fallback = new List<int>();
+            for (int number = 0; number < 256; number++)
+                using (var handle = OpenDevice(@"\\.\PhysicalDrive" + number))
+                    if (handle != null && !handle.IsInvalid) fallback.Add(number);
+            return fallback;
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint QueryDosDevice(string name, [Out] char[] target, uint capacity);
 
         public static List<VolumeInfo> GetVolumes()
         {
