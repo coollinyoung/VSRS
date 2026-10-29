@@ -21,6 +21,9 @@ namespace VSRS
     // 磁區：DriveLetter 格式為 C:（不含尾端反斜線），DiskNumber=-1 表示映射失敗。
     internal sealed class VolumeInfo
     {
+        // GUID 根路徑不依賴磁碟代號；頁籤 2 用它識別未分配代號的磁區。
+        public string VolumePath { get; set; }
+        public string ReadError { get; set; }
         public string DriveLetter { get; set; }
         public string Label { get; set; }
         public string FileSystem { get; set; }
@@ -29,7 +32,7 @@ namespace VSRS
         public int DiskNumber { get; set; } = -1;
         public bool IsUsb { get; set; }
         public string SizeText => (Size / 1024d / 1024d / 1024d).ToString("0.0") + " GB";
-        public override string ToString() => $"{DriveLetter}  |  {SizeText}  |  {FileSystem}  |  {Label}  |  {(IsUsb ? "USB 外接" : "內接/其他")}" + (HasWindows ? "  [Windows 來源，可製作 VHDX]" : "");
+        public override string ToString() => $"{(string.IsNullOrEmpty(DriveLetter) ? "未分配代號 " + VolumePath : DriveLetter)}  |  磁碟 {DiskNumber}  |  {SizeText}  |  {FileSystem}  |  {Label}  |  {(IsUsb ? "USB 外接" : "內接/其他")}" + (HasWindows ? "  [偵測到 Windows]" : "") + (string.IsNullOrEmpty(ReadError) ? "" : "  [" + ReadError + "]");
     }
 
     // 外部程式與原生 API 共用的結果。0 成功；-1 一般例外、-2 結果驗證失敗、-3 改名失敗。
@@ -41,3 +44,4 @@ namespace VSRS
         public bool Success => ExitCode == 0;
     }
 }
+

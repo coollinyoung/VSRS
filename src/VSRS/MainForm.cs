@@ -133,7 +133,9 @@ namespace VSRS
             var content = AddContentPanel(page);
             AddTitle(content, "選擇包含 Windows 的來源磁區");
             volumeBox = AddCombo(content);
-            AddText(content, "程式會優先標示含有 Windows\\System32 的磁區。WinPE 中原本的 C: 可能會變成 D: 或其他代號，請不要只看磁碟代號。", Color.DarkBlue);
+            AddText(content, "列出內接及外接磁碟的所有已辨識磁區，包含未分配代號者，優先標示含 Windows 資料夾的磁區。無代號來源會在製作時暫時分配代號，結束後移除。", Color.DarkBlue);
+            var refresh = AddButton(content, "重新偵測所有磁區", 220);
+            refresh.Click += (s, e) => RefreshCaptureVolumes();
             AddText(content, "base.vhdx 存放資料夾（檔名固定）：");
             vhdOutput = AddFolderPathBox(content, "選擇 base.vhdx 存放資料夾", true);
             captureButton = AddButton(content, "開始建立 VHDX", 220);
@@ -263,12 +265,18 @@ namespace VSRS
 
             // WinPE 沒有 VSS，使用 -c 直接複製，避免 Volume Shadow Copy 失敗。
             // 語法：disk2vhd64.exe -c <來源磁區> <VHDX 檔案>。
-            string arguments = $"-c {volume.DriveLetter} \"{output}\"";
-            WriteLog($"VHDX 來源磁區：{volume.DriveLetter}（Windows={volume.HasWindows}）");
-            WriteLog("實際執行檔：" + disk2vhd);
-            WriteLog("實際參數：" + arguments);
             await RunBusyAsync(async () => {
-                CommandResult result = await ProcessService.RunAsync(disk2vhd, arguments, WriteLog);
+                CommandResult result;
+                // 重新查詢選取的 GUID，不信任掃描時的舊代號；不依賴 USB/內接分類。
+                // using 跨越整段外部程序等待，成功/失敗/例外均會釋放本次借用的代號。
+                using (var mount = HardwareService.MountForCapture(volume, WriteLog))
+                {
+                    string arguments = $"-c {mount.DriveLetter} \"{output}\"";
+                    WriteLog($"VHDX 來源磁區：{volume.VolumePath} → {mount.DriveLetter}（Windows={volume.HasWindows}）");
+                    WriteLog("實際執行檔：" + disk2vhd);
+                    WriteLog("實際參數：" + arguments);
+                    result = await ProcessService.RunAsync(disk2vhd, arguments, WriteLog);
+                }
                 if (!result.Success) return result;
 
                 string actualFile = null;
@@ -702,7 +710,7 @@ namespace VSRS
             try
             {
                 volumeBox.Items.Clear();
-                foreach (var volume in HardwareService.GetVolumes())
+                foreach (var volume in HardwareService.GetCaptureVolumes(WriteLog))
                     volumeBox.Items.Add(volume);
                 if (volumeBox.Items.Count > 0)
                 {
@@ -1077,3 +1085,4 @@ namespace VSRS
         }
     }
 }
+

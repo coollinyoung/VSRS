@@ -131,6 +131,152 @@ namespace VSRS
             return result.OrderByDescending(x => x.HasWindows).ThenBy(x => x.DriveLetter).ToList();
         }
 
+        // 頁籤 2 使用 Volume GUID 列舉，不以 DriveInfo/代號/USB 分類篩選。
+        // 掃描只讀 metadata；不因為無代號就掛載所有 EFI/Recovery 磁區。
+        // RAW、鎖定或無法讀取的 volume 仍列出；未配置空間/MSR 不是檔案系統 volume。
+        public static List<VolumeInfo> GetCaptureVolumes(Action<string> log)
+        {
+            var disks = GetDisks(log).ToDictionary(x => x.Number);
+            var result = new List<VolumeInfo>();
+            var name = new StringBuilder(1024);
+            IntPtr search = FindFirstVolume(name, (uint)name.Capacity);
+            if (search == new IntPtr(-1))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "無法列舉磁區");
+            try
+            {
+                do
+                {
+                    string root = name.ToString();
+                    var volume = new VolumeInfo { VolumePath = root, DriveLetter = "", Label = "", FileSystem = "" };
+                    // 先加入清單，再讀資訊；任何單一磁區失敗均不可使它消失。
+                    result.Add(volume);
+                    try
+                    {
+                        try { volume.DriveLetter = GetVolumeLetters(root).FirstOrDefault() ?? ""; }
+                        catch (Exception ex) { log?.Invoke(root + " 掛載路徑查詢失敗：" + ex.Message); }
+                        volume.DiskNumber = GetDiskNumberForDrive(root);
+                        volume.IsUsb = disks.TryGetValue(volume.DiskNumber, out var disk) && disk.IsUsb;
+                        var label = new StringBuilder(261);
+                        var fs = new StringBuilder(261);
+                        if (GetVolumeInformation(root, label, (uint)label.Capacity,
+                            out uint serial, out uint maxName, out uint flags, fs, (uint)fs.Capacity))
+                        {
+                            volume.Label = label.ToString();
+                            volume.FileSystem = fs.ToString();
+                        }
+                        else volume.ReadError = "資訊無法讀取，Win32=" + Marshal.GetLastWin32Error();
+                        if (GetDiskFreeSpaceEx(root, out ulong available, out ulong total, out ulong free))
+                            volume.Size = total;
+                        // GUID 路徑可直接存取目錄，無需預先分配 C:/D:。
+                        uint attributes = GetFileAttributes(root + "Windows");
+                        volume.HasWindows = attributes != uint.MaxValue && (attributes & 0x10) != 0;
+                    }
+                    catch (Exception ex) { volume.ReadError = ex.Message; }
+                    if (!string.IsNullOrEmpty(volume.ReadError))
+                        log?.Invoke(root + "：" + volume.ReadError);
+                    name.Clear();
+                } while (FindNextVolume(search, name, (uint)name.Capacity));
+                int error = Marshal.GetLastWin32Error();
+                if (error != 18) log?.Invoke("磁區列舉未完整結束，Win32=" + error);
+            }
+            finally { FindVolumeClose(search); }
+            return result.OrderByDescending(v => v.HasWindows).ThenBy(v => v.DiskNumber)
+                .ThenBy(v => v.VolumePath, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static string[] GetVolumeLetters(string root)
+        {
+            uint capacity = 512;
+            while (capacity <= 1048576)
+            {
+                var paths = new char[(int)capacity];
+                if (GetVolumePathNamesForVolumeName(root, paths, capacity, out uint required))
+                    return new string(paths).Split('\0').Where(p => p.Length == 3 &&
+                        char.IsLetter(p[0]) && p[1] == ':' && p[2] == '\\')
+                        .Select(p => p.Substring(0, 2)).ToArray();
+                int error = Marshal.GetLastWin32Error();
+                if (error != 234) throw new System.ComponentModel.Win32Exception(error);
+                capacity = Math.Max(capacity * 2, required);
+            }
+            throw new IOException("磁區掛載路徑清單過長。");
+        }
+
+        // Disk2vhd 的命令列接收磁碟代號。僅在使用者開始製作時為選取的磁區
+        // 借用一個空閒代號；現有代號不變動，程序結束（含失敗）即移除借用代號。
+        public static CaptureMount MountForCapture(VolumeInfo volume, Action<string> log)
+        {
+            string root = volume.VolumePath;
+            if (string.IsNullOrEmpty(root)) throw new IOException("磁區識別資料已失效，請重新偵測。");
+            string existing = GetVolumeLetters(root).FirstOrDefault();
+            if (existing != null) return new CaptureMount(existing, root, false, log);
+            uint used = GetLogicalDrives();
+            if (used == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            int lastError = 0;
+            for (char letter = 'Z'; letter >= 'D'; letter--)
+            {
+                if ((used & (1u << (letter - 'A'))) != 0) continue;
+                string drive = letter + ":";
+                // SetVolumeMountPoint 不覆蓋現有掛載點；另外排除 DOS/SUBST 名稱。
+                if (QueryDosDevice(drive, new char[1024], 1024) != 0) continue;
+                if (SetVolumeMountPoint(drive + "\\", root))
+                {
+                    log?.Invoke("暫時分配 " + drive + " 至 " + root);
+                    return new CaptureMount(drive, root, true, log);
+                }
+                lastError = Marshal.GetLastWin32Error();
+            }
+            throw new IOException("無法為所選磁區分配暫時代號；可能無空閒代號、磁區離線或掛載受限。Win32=" + lastError);
+        }
+
+        internal sealed class CaptureMount : IDisposable
+        {
+            public string DriveLetter { get; }
+            private readonly string root;
+            private readonly bool owned;
+            private readonly Action<string> log;
+            private bool disposed;
+            internal CaptureMount(string letter, string volumeRoot, bool created, Action<string> logger)
+            { DriveLetter = letter; root = volumeRoot; owned = created; log = logger; }
+            public void Dispose()
+            {
+                if (disposed) return;
+                disposed = true;
+                if (!owned) return;
+                var current = new StringBuilder(1024);
+                // 熱插拔後代號可能已改指其他裝置，絕不移除不屬於本次作業的映射。
+                if (!GetVolumeNameForVolumeMountPoint(DriveLetter + "\\", current, (uint)current.Capacity) ||
+                    !string.Equals(current.ToString(), root, StringComparison.OrdinalIgnoreCase))
+                { log?.Invoke("暫時代號映射已改變或無法驗證，未移除：" + DriveLetter); return; }
+                if (!DeleteVolumeMountPoint(DriveLetter + "\\"))
+                    log?.Invoke("無法移除暫時代號 " + DriveLetter + "，Win32=" + Marshal.GetLastWin32Error());
+                else log?.Invoke("已移除暫時代號：" + DriveLetter);
+            }
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr FindFirstVolume(StringBuilder name, uint length);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool FindNextVolume(IntPtr search, StringBuilder name, uint length);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool FindVolumeClose(IntPtr search);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumePathNamesForVolumeName(string name, [Out] char[] paths, uint length, out uint required);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumeInformation(string root, StringBuilder label, uint labelSize,
+            out uint serial, out uint maxName, out uint flags, StringBuilder fs, uint fsSize);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetDiskFreeSpaceEx(string root, out ulong available, out ulong total, out ulong free);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFileAttributes(string path);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetLogicalDrives();
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool SetVolumeMountPoint(string mount, string volume);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool DeleteVolumeMountPoint(string mount);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetVolumeNameForVolumeMountPoint(string mount, StringBuilder volume, uint length);
+
         // IsBootOrSystem 實際表示發現 Windows\System32，不是韌體開機狀態查詢。
         private static HashSet<int> FindWindowsDiskNumbers()
         {
@@ -152,7 +298,8 @@ namespace VSRS
         // 目前只支援第一個 extent 的標示；跨磁碟動態磁區不是完整映射。
         private static int GetDiskNumberForDrive(string driveLetter)
         {
-            using (var handle = OpenDevice(@"\\.\" + driveLetter))
+            using (var handle = OpenDevice(driveLetter.StartsWith(@"\\?\",
+                StringComparison.Ordinal) ? driveLetter.TrimEnd('\\') : @"\\.\" + driveLetter))
             {
                 if (handle == null || handle.IsInvalid) return -1;
                 IntPtr output = Marshal.AllocHGlobal(1024);
@@ -623,3 +770,4 @@ namespace VSRS
         }
     }
 }
+
