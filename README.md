@@ -76,13 +76,12 @@ USBOX 不同版本的「外置程式」資料夾名稱可能不同，建議先�
 
 ### 1. Ventoy 安裝
 
-- 按「重新偵測磁碟」。
-- 同時核對磁碟編號、容量、型號及 USB/內接標示。
-- 含 Windows 的磁碟會顯示 `[含 Windows，高風險]` 警告，但不再強制鎖定；仍須勾選允許內接磁碟、輸入磁碟編號並通過最後確認。
-- 要操作內接/非 USB 磁碟時，還必須勾選允許選項；程式只在此情況固定加入 Ventoy `/GPT /FS:NTFS /NOUSBCheck`，使用 GPT 分割樣式並將 Ventoy 資料磁區格式化為 NTFS。
-- 按安裝後，必須再次輸入磁碟編號，再確認資料清除警告。
-
-USB/內接是依 WMI 的 InterfaceType、PNPDeviceID 與 MediaType 綜合判斷。某些 USB-SATA/NVMe 橋接晶片可能回報為 SCSI，因此這只是輔助標示，容量與型號才是最後核對依據。
+- 按「重新偵測磁碟」，列舉 Windows 已註冊的 PhysicalDrive，不再限於磁碟編號 0～63。
+- 不依 USB、SCSI、RAID、NVMe 或 Windows 資料夾篩除磁碟；型號、容量查詢失敗時仍保留項目並記錄原因。
+- USB／內接標示來自原生儲存裝置資訊，僅供參考，不再要求勾選「允許內接」。
+- 所有目標固定使用 `/GPT /FS:NTFS /NOUSBCheck`，避免外接盒未回報 USB 而受 Ventoy 的 USB 檢查限制。
+- 安裝前仍需輸入磁碟編號並確認清除資料。請依磁碟編號、容量、型號核對目標。
+- 若 Windows／PE 本身尚未載入裝置驅動、沒有辨識出實體磁碟，程式無法單靠放寬篩選使其出現。
 
 ### 2. Windows 磁區轉 VHDX
 
