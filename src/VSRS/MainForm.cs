@@ -17,7 +17,10 @@ namespace VSRS
         private static readonly Color TabDarkColor = Color.FromArgb(38, 52, 69);
         private static readonly Color AccentColor = Color.FromArgb(36, 99, 155);
         private static readonly Color TextColor = Color.FromArgb(31, 45, 61);
+        // 建立應用程式生命週期共用的黃色游標；暫存 GDI bitmap 在 finally 釋放。
         private static readonly Cursor ActionCursor = CreateYellowHandCursor();
+        // 作業期間禁止重入、切換目標及關閉視窗；磁碟操作無法安全地任意取消。
+        private bool operationInProgress;
         private readonly TabControl tabs = new TabControl();
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
@@ -25,6 +28,9 @@ namespace VSRS
         private ComboBox copyTargetVolume;
         private Button installButton, captureButton, createDiffButton, mergeButton, copyButton, autoRestoreButton, manualRestoreButton;
 
+        // 主視窗以程式碼建立，沒有 Designer.cs；四個 Build*Tab 決定頁面內容。
+        // 資料夾欄位只保存路徑；不要把 base.vhdx 檔名回填進資料夾欄位。
+        // 頁籤索引 1/3 對應畫面頁籤 2/4，切換時重新取得磁區資訊。
         public MainForm()
         {
             Text = "VSRS - Ventoy 單機還原系統";
@@ -78,6 +84,7 @@ namespace VSRS
             ApplyDarkTitleBar();
         }
 
+        // DWM 著色屬於可選功能；精簡 PE 缺少 DLL 時不應阻止應用程式啟動。
         private void ApplyDarkTitleBar()
         {
             try
@@ -104,6 +111,7 @@ namespace VSRS
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
 
+        // 頁籤 1：物理磁碟安裝入口。USB 分類僅供參考，不用來隱藏或禁止目標。
         private TabPage BuildVentoyTab()
         {
             var page = NewPage("1. 安裝 Ventoy 到硬碟");
@@ -118,6 +126,7 @@ namespace VSRS
             return page;
         }
 
+        // 頁籤 2：上方是來源磁區；下方只選輸出資料夾，檔名由 CaptureAsync 固定。
         private TabPage BuildCaptureTab()
         {
             var page = NewPage("2. Windows 磁區轉 VHDX");
@@ -126,12 +135,14 @@ namespace VSRS
             volumeBox = AddCombo(content);
             AddText(content, "程式會優先標示含有 Windows\\System32 的磁區。WinPE 中原本的 C: 可能會變成 D: 或其他代號，請不要只看磁碟代號。", Color.DarkBlue);
             AddText(content, "base.vhdx 存放資料夾（檔名固定）：");
-            vhdOutput = AddFolderPathBox(content);
+            vhdOutput = AddFolderPathBox(content, "選擇 base.vhdx 存放資料夾", true);
             captureButton = AddButton(content, "開始建立 VHDX", 220);
             captureButton.Click += async (s, e) => await CaptureAsync();
             return page;
         }
 
+        // 頁籤 3：建立使用固定 USB 路徑；合併則由使用者選擇現有子檔。
+        // 兩者都是父檔下的平行差分，切勿改為 temp2 依賴 temp 的鏈狀關係。
         private TabPage BuildDifferencingTab()
         {
             var page = NewPage("3. 差分建立與合併");
@@ -149,6 +160,8 @@ namespace VSRS
             return page;
         }
 
+        // 頁籤 4 左欄是完整部署，右欄是 auto/manual 設定覆蓋。
+        // 右側按鈕不執行隱藏批次檔；只有左側完整部署會執行。
         private TabPage BuildCopyTab()
         {
             var page = NewPage("4. 複製 VentoyHDD 資料");
@@ -197,6 +210,8 @@ namespace VSRS
             return page;
         }
 
+        // 危險操作：以磁碟編號呼叫 Ventoy，不以磁碟代號替代。
+        // 目前所有目標均採 GPT/NTFS/NOUSBCheck；保留輸入編號及最後確認。
         private async Task InstallVentoyAsync()
         {
             var disk = diskBox.SelectedItem as DiskInfo;
@@ -212,6 +227,9 @@ namespace VSRS
             await RunBusyAsync(() => ProcessService.RunAsync(ventoy, args, WriteLog));
         }
 
+        // 使用 Disk2vhd x64 將來源磁區轉為所選資料夾的 base.vhdx。
+        // -c 是現行 PE 流程使用的直接複製參數；若更換工具版本需重新實測。
+        // 外部程式結束後檢查檔案，並用兩段改名處理 Windows 保留大小寫的行為。
         private async Task CaptureAsync()
         {
             var volume = volumeBox.SelectedItem as VolumeInfo;
@@ -274,7 +292,14 @@ namespace VSRS
                         string temporaryName = Path.Combine(outputDirectory,
                             "VSRS_case_" + Guid.NewGuid().ToString("N") + ".tmp");
                         File.Move(actualFile, temporaryName);
-                        File.Move(temporaryName, output);
+                        try { File.Move(temporaryName, output); }
+                        catch
+                        {
+                            // 第二次改名失敗時，盡量還原原檔名；若還原也失敗，記錄檔案確切位置。
+                            try { File.Move(temporaryName, actualFile); }
+                            catch { actualFile = temporaryName; }
+                            throw;
+                        }
                         WriteLog("已將實際副檔名強制改為小寫 .vhdx：" + output);
                     }
                     else
@@ -295,6 +320,7 @@ namespace VSRS
             });
         }
 
+        // 只驗證路徑、副檔名及存在性，不代表檔案內容一定是有效的 VHDX。
         private static bool TryNormalizeVhdxPath(string input, bool mustExist, out string path, out string error)
         {
             path = string.Empty;
@@ -325,6 +351,8 @@ namespace VSRS
             return true;
         }
 
+        // 尋找唯一 USB 基底；多個候選時拒絕猜測，因為下一步會刪除舊差分。
+        // 使用 BusType/Removable 的推測結果；特殊外接盒未回報 USB 時仍可能找不到。
         private static string FindUsbBaseVhdx()
         {
             var usbLetters = new System.Collections.Generic.HashSet<string>(
@@ -353,6 +381,8 @@ namespace VSRS
             return candidates[0];
         }
 
+        // 依需求先刪除 temp.vhdx 與 temp2.vhdx，再逐一建立；不是可回復交易。
+        // 第二檔建立失敗可能只留下第一檔，必須回報階段及實際結果。
         private async Task CreateDiffAsync()
         {
             await RunBusyAsync(async () => {
@@ -419,6 +449,7 @@ namespace VSRS
             });
         }
 
+        // UI 負責取得子檔與破壞性操作確認；實際父路徑解析、合併及重建交給服務層。
         private async Task MergeAsync()
         {
             if (!TryNormalizeVhdxPath(mergeVhd.Text, true, out string child, out string error))
@@ -434,6 +465,9 @@ namespace VSRS
             await RunBusyAsync(() => VirtualDiskService.MergeAndRebuildAsync(child, WriteLog));
         }
 
+        // mode 由按鈕固定傳入 auto/manual；只複製 os 與 ventoy 的內容至目的根目錄。
+        // 先確認兩個來源子資料夾均存在，優先使用左側選定的 USB 來源。
+        // 不顯示覆蓋確認；成功後才在 UI 執行緒提示拔除隨身碟。
         private async Task CopyRestoreModeAsync(string mode)
         {
             var target = copyTargetVolume.SelectedItem as VolumeInfo;
@@ -507,6 +541,9 @@ namespace VSRS
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
+        // 遞迴建立目錄、覆蓋檔案，包含空目錄；不刪除目的地額外檔案。
+        // 覆蓋前清除目標唯讀屬性；拒絕遇到的 reparse point，避免遞迴循環與寫出邊界。
+        // 呼叫端須先確認來源與目的不重疊；中途失敗不自動還原已覆蓋檔案。
         private void CopyRestoreTree(string source, string destination, ref int count)
         {
             // 不追蹤連結，避免寫入所選資料夾以外的位置。
@@ -536,6 +573,9 @@ namespace VSRS
                 CopyRestoreTree(directory, Path.Combine(destination, Path.GetFileName(directory)), ref count);
         }
 
+        // 完整部署：複製 ventoyhdd 內容到根目錄，不在目的地再加一層 ventoyhdd。
+        // 只有複製全部成功才執行根目錄的隱藏資料夾.bat，工作目錄也是目的根目錄。
+        // 批次檔應自行結束，勿含 pause 或需要互動輸入的指令。
         private async Task CopyVentoyDataAsync()
         {
             string source = copySourceFolder.Text.Trim();
@@ -560,23 +600,8 @@ namespace VSRS
                 int files = 0;
                 try
                 {
-                    await Task.Run(() => {
-                        foreach (string directory in Directory.GetDirectories(sourceRoot, "*", SearchOption.AllDirectories))
-                        {
-                            string relative = directory.Substring(sourceRoot.Length);
-                            Directory.CreateDirectory(Path.Combine(destination, relative));
-                        }
-                        foreach (string file in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
-                        {
-                            string relative = file.Substring(sourceRoot.Length);
-                            string output = Path.Combine(destination, relative);
-                            string outputDirectory = Path.GetDirectoryName(output);
-                            if (!Directory.Exists(outputDirectory)) Directory.CreateDirectory(outputDirectory);
-                            File.Copy(file, output, true);
-                            files++;
-                            WriteLog("已複製：" + relative);
-                        }
-                    });
+                    // 與自動／手動模式共用遞迴複製，讓唯讀檔案與連結處理保持一致。
+                    await Task.Run(() => CopyRestoreTree(sourceRoot, destination, ref files));
                     WriteLog($"全部檔案複製完成，共 {files} 個檔案。");
                     string batchDirectory = destination;
                     string batchPath = Path.Combine(batchDirectory, "隱藏資料夾.bat");
@@ -610,6 +635,7 @@ namespace VSRS
             });
         }
 
+        // 尋找 USB 根目錄的 ventoyhdd 作為左欄預設值；使用者仍可手動改選。
         private void DetectVentoyHddSource(bool showResult)
         {
             string found = null;
@@ -640,6 +666,7 @@ namespace VSRS
             else if (showResult) Warn("找不到任何磁碟根目錄下的 ventoyhdd 資料夾。");
         }
 
+        // 清掉舊清單後重新偵測，避免使用已拔除裝置的舊資料；優先標籤 Ventoy。
         private void RefreshCopyTargetVolumes()
         {
             copyTargetVolume.BeginUpdate();
@@ -668,6 +695,7 @@ namespace VSRS
             finally { copyTargetVolume.EndUpdate(); }
         }
 
+        // 優先列出含 Windows 的來源；偵測失敗時清空而不保留過期項目。
         private void RefreshCaptureVolumes()
         {
             volumeBox.BeginUpdate();
@@ -693,6 +721,7 @@ namespace VSRS
             finally { volumeBox.EndUpdate(); }
         }
 
+        // 啟動與重新偵測按鈕共用入口；這些原生查詢同步執行，慢速裝置可能造成短暫等待。
         private void RefreshHardware()
         {
             try
@@ -706,8 +735,11 @@ namespace VSRS
             catch (Exception ex) { Warn("原生磁碟偵測失敗。請確認程式以系統管理員權限執行。\r\n" + ex.Message); }
         }
 
+        // 集中管理重入、錯誤顯示及 UI 解鎖，finally 保證例外後恢復介面。
+        // action 應回傳 CommandResult；即使個別流程漏接例外，這裡仍統一攔截。
         private async Task RunBusyAsync(Func<Task<CommandResult>> action)
         {
+            if (operationInProgress) return;
             SetBusy(true); WriteLog("開始執行……");
             try
             {
@@ -719,13 +751,42 @@ namespace VSRS
                     Warn("作業未成功：\r\n\r\n" + detail + "\r\n\r\n完整過程請查看下方紀錄。");
                 }
             }
+            catch (Exception ex)
+            {
+                WriteLog("未預期的作業錯誤：" + ex);
+                Warn("作業中止，可能已有部分變更。\r\n" + ex.Message);
+            }
             finally { SetBusy(false); }
         }
 
-        private void SetBusy(bool busy) { installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = copyButton.Enabled = autoRestoreButton.Enabled = manualRestoreButton.Enabled = !busy; UseWaitCursor = busy; }
-        private void WriteLog(string text) { if (InvokeRequired) { BeginInvoke(new Action<string>(WriteLog), text); return; } log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n"); }
+        // 停用整個頁籤區，防止背景複製時使用者更改磁區或觸發刷新。
+        private void SetBusy(bool busy) { operationInProgress = busy; tabs.Enabled = !busy; installButton.Enabled = captureButton.Enabled = createDiffButton.Enabled = mergeButton.Enabled = copyButton.Enabled = autoRestoreButton.Enabled = manualRestoreButton.Enabled = !busy; UseWaitCursor = busy; }
+        // 服務層可從背景執行緒呼叫；透過 BeginInvoke 回到 WinForms UI 執行緒。
+        private void WriteLog(string text)
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action<string>(WriteLog), text); }
+                catch (InvalidOperationException) { /* 視窗關閉時已無可寫入的控制代碼。 */ }
+                return;
+            }
+            log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n");
+        }
+
+        // 不提供任意終止磁碟作業；正常關閉需等作業完成，以免截斷合併或複製。
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (operationInProgress)
+            {
+                e.Cancel = true;
+                Warn("作業仍在執行，請等待完成後再關閉程式。");
+            }
+            base.OnFormClosing(e);
+        }
         private static void Warn(string text) => MessageBox.Show(text, "VSRS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
+        // 選中頁籤與內容使用同一淺藍灰底色；未選中維持深色，文字以省略號避免裁切。
         private void DrawTabItem(object sender, DrawItemEventArgs e)
         {
             bool selected = e.Index == tabs.SelectedIndex;
@@ -744,6 +805,7 @@ namespace VSRS
 
         private static TabPage NewPage(string text) => new TabPage(text) { Padding = new Padding(0), BackColor = ContentBackColor, UseVisualStyleBackColor = false };
 
+        // 垂直自動排版與捲軸是高 DPI 相容的核心，避免為每個控制項寫死 Y 座標。
         private static FlowLayoutPanel AddContentPanel(TabPage page)
         {
             var panel = new FlowLayoutPanel {
@@ -760,6 +822,7 @@ namespace VSRS
             return panel;
         }
 
+        // 四頁共用作者標示；修改此處即可同步更新。
         private static void AddAuthorLabel(TabPage page)
         {
             var author = new Label {
@@ -846,6 +909,7 @@ namespace VSRS
             return c;
         }
 
+        // 檔案選擇器（目前用於合併子檔）；與只選資料夾的 AddFolderPathBox 區分。
         private static TextBox AddPathBox(FlowLayoutPanel p, bool save, string filter)
         {
             var row = new TableLayoutPanel {
@@ -873,7 +937,8 @@ namespace VSRS
             return box;
         }
 
-        private static TextBox AddFolderPathBox(FlowLayoutPanel p)
+        // 共用資料夾選擇器，description/allowNewFolder 讓頁籤 2 與 4 使用不同提示。
+        private static TextBox AddFolderPathBox(FlowLayoutPanel p, string description = "選擇隨身碟根目錄下的 ventoyhdd 資料夾", bool allowNewFolder = false)
         {
             var row = new TableLayoutPanel {
                 Width = 850,
@@ -890,7 +955,7 @@ namespace VSRS
             button.FlatAppearance.MouseOverBackColor = Color.FromArgb(207, 222, 236);
             button.FlatAppearance.MouseDownBackColor = Color.FromArgb(187, 207, 226);
             button.Click += (s, e) => {
-                using (var dialog = new FolderBrowserDialog { Description = "選擇隨身碟根目錄下的 ventoyhdd 資料夾", ShowNewFolderButton = false })
+                using (var dialog = new FolderBrowserDialog { Description = description, ShowNewFolderButton = allowNewFolder })
                     if (dialog.ShowDialog() == DialogResult.OK) box.Text = dialog.SelectedPath;
             };
             row.Controls.Add(box, 0, 0);
@@ -983,6 +1048,7 @@ namespace VSRS
         [DllImport("gdi32.dll")]
         private static extern bool DeleteObject(IntPtr handle);
 
+        // 依容器寬度調整欄位；保留最小 560 寬度，窄視窗可能需要水平捲動。
         private static void ResizeFlowChildren(FlowLayoutPanel p)
         {
             int width = Math.Max(560, p.ClientSize.Width - p.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 8);

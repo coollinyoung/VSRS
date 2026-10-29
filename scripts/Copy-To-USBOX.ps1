@@ -1,3 +1,5 @@
+# 部署到 USBOX 指定目錄；Tools 需由使用者補入官方工具，此腳本不下載它們。
+# -Force 會覆蓋同名程式，執行前應關閉目的地的 VSRS。
 param(
     [Parameter(Mandatory=$true)][string]$Destination
 )

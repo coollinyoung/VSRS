@@ -1,4 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- 維護要點：維持 x64，Services.cs 的原生結構偏移以 x64 為準。
+       自包含不代表完全不依賴 Windows DLL；PE 仍需提供磁碟及桌面 API。 -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -23,6 +25,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <!-- EXE 檔案圖示由 ApplicationIcon 提供；視窗圖示由內嵌資源提供。 -->
   <ItemGroup>
     <EmbeddedResource Include="recovery.ico" LogicalName="VSRS.recovery.ico" />
   </ItemGroup>

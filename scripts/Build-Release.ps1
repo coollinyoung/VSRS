@@ -1,3 +1,5 @@
+# 發行入口：必須使用 dotnet publish，普通 build 並非自包含部署結果。
+# $PSScriptRoot 讓腳本可從任意目前工作目錄執行。
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot '..\src\VSRS\VSRS.csproj'
 $output = Join-Path $PSScriptRoot '..\publish\win-x64'

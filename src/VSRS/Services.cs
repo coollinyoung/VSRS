@@ -23,6 +23,8 @@ namespace VSRS
         private const uint IoctlDiskGetLengthInfo = 0x0007405C;
         private const uint IoctlVolumeGetVolumeDiskExtents = 0x00560000;
 
+        // 列舉實體磁碟，與有磁碟代號的磁區清單不同；未分割硬碟仍可出現在這裡。
+        // 資訊查詢失敗只標示 Unknown，不隱藏裝置；容量 0 表示未知，不一定是空磁碟。
         public static List<DiskInfo> GetDisks(Action<string> log = null)
         {
             var windowsDisks = FindWindowsDiskNumbers();
@@ -66,6 +68,8 @@ namespace VSRS
             return result.OrderBy(x => x.Number).ToList();
         }
 
+        // QueryDosDevice 回傳雙 NUL 結尾的多字串；緩衝不足時倍增。
+        // 列舉不可用才退回 0～255 探測，因此此備援仍有上限。
         private static IEnumerable<int> EnumerateDiskNumbers(Action<string> log)
         {
             // 列舉已註冊的 PhysicalDrive，支援非連續及大於 63 的磁碟編號。
@@ -96,6 +100,8 @@ namespace VSRS
         [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint QueryDosDevice(string name, [Out] char[] target, uint capacity);
 
+        // 只列出已就緒且有代號的本機固定／可移除磁區；不含未掛載分割區。
+        // IsUsb 是輔助推測，不是安全保證；單一裝置查詢失敗不應中止其他裝置。
         public static List<VolumeInfo> GetVolumes()
         {
             var disks = GetDisks().ToDictionary(x => x.Number);
@@ -125,6 +131,7 @@ namespace VSRS
             return result.OrderByDescending(x => x.HasWindows).ThenBy(x => x.DriveLetter).ToList();
         }
 
+        // IsBootOrSystem 實際表示發現 Windows\System32，不是韌體開機狀態查詢。
         private static HashSet<int> FindWindowsDiskNumbers()
         {
             var result = new HashSet<int>();
@@ -141,6 +148,8 @@ namespace VSRS
             return result;
         }
 
+        // 以 VOLUME_DISK_EXTENTS 第一個 extent 取得實體編號，失敗回 -1。
+        // 目前只支援第一個 extent 的標示；跨磁碟動態磁區不是完整映射。
         private static int GetDiskNumberForDrive(string driveLetter)
         {
             using (var handle = OpenDevice(@"\\.\" + driveLetter))
@@ -159,19 +168,22 @@ namespace VSRS
             }
         }
 
+        // IOCTL 回傳長度至少 8 bytes 才讀取 Int64；取得失敗回 0，由呼叫端備援。
         private static ulong QueryDiskSize(SafeFileHandle handle)
         {
             IntPtr output = Marshal.AllocHGlobal(8);
             try
             {
                 uint returned;
-                if (!DeviceIoControl(handle, IoctlDiskGetLengthInfo, IntPtr.Zero, 0, output, 8, out returned, IntPtr.Zero)) return 0;
+                if (!DeviceIoControl(handle, IoctlDiskGetLengthInfo, IntPtr.Zero, 0, output, 8, out returned, IntPtr.Zero) || returned < 8) return 0;
                 long length = Marshal.ReadInt64(output);
                 return length > 0 ? (ulong)length : 0;
             }
             finally { Marshal.FreeHGlobal(output); }
         }
 
+        // STORAGE_DEVICE_DESCRIPTOR 的 byte offset 來自 Windows 原生結構。
+        // 讀取上限 2048 bytes；無描述資料的外接盒以空描述返回，不淘汰硬碟。
         private static DeviceDescriptor QueryDeviceDescriptor(SafeFileHandle handle)
         {
             IntPtr query = Marshal.AllocHGlobal(12);
@@ -185,6 +197,7 @@ namespace VSRS
                 if (!DeviceIoControl(handle, IoctlStorageQueryProperty, query, 12, output, 2048, out returned, IntPtr.Zero) || returned < 36)
                     return new DeviceDescriptor();
 
+                returned = Math.Min(returned, 2048u);
                 bool removable = Marshal.ReadByte(output, 10) != 0;
                 uint vendorOffset = (uint)Marshal.ReadInt32(output, 12);
                 uint productOffset = (uint)Marshal.ReadInt32(output, 16);
@@ -204,12 +217,18 @@ namespace VSRS
             }
         }
 
+        // 字串 offset 與長度都必須落在驅動實際回傳的緩衝區範圍內。
         private static string ReadAnsiAtOffset(IntPtr buffer, uint offset, uint bufferSize)
         {
             if (offset == 0 || offset >= bufferSize) return string.Empty;
-            return (Marshal.PtrToStringAnsi(IntPtr.Add(buffer, (int)offset)) ?? string.Empty).Trim();
+            // 不依賴驅動一定補上 NUL；限制讀取範圍，避免越過原生緩衝區。
+            int length = 0;
+            while ((uint)length < bufferSize - offset &&
+                Marshal.ReadByte(buffer, (int)offset + length) != 0) length++;
+            return (Marshal.PtrToStringAnsi(IntPtr.Add(buffer, (int)offset), length) ?? string.Empty).Trim();
         }
 
+        // 以零存取權及共享讀寫查詢 metadata；容量查詢另以唯讀控制代碼重試。
         private static SafeFileHandle OpenDevice(string path)
         {
             return CreateFile(path, 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
@@ -299,6 +318,8 @@ namespace VSRS
             if (status != 0) throw new System.ComponentModel.Win32Exception(unchecked((int)status));
         }
 
+        // GET_VIRTUAL_DISK_INFO 的 union 在 x64 offset 8；父檔字串始於 offset 12。
+        // 只接受 Windows 已解析成功的絕對父路徑，不自行猜測 base.vhdx。
         private static string ReadParentPath(SafeFileHandle handle)
         {
             // GET_VIRTUAL_DISK_INFO has an 8-byte aligned union.
@@ -318,6 +339,9 @@ namespace VSRS
             finally { Marshal.FreeHGlobal(buffer); }
         }
 
+        // 合併深度固定 1，RWDepth=2 代表需開啟子檔與直接父檔。
+        // 原生 API 成功後才關閉子檔、刪除兩個固定目標並重建，失敗不假裝回復。
+        // merged 狀態用於區分合併失敗與合併成功但重建失敗。
         public static Task<CommandResult> MergeAndRebuildAsync(string child, Action<string> log)
         {
             return Task.Run(async () => {
@@ -398,6 +422,8 @@ namespace VSRS
             });
         }
 
+        // ParentPath 指定父檔，MaximumSize=0 讓大小繼承父檔；SourcePath 必須為 null。
+        // Version 2 的 access mask 必須為 0；控制代碼用完即釋放，避免下次刪除被占用。
         public static Task<CommandResult> CreateDifferencingVhdxAsync(
             string childPath, string parentPath, Action<string> log)
         {
@@ -464,6 +490,8 @@ namespace VSRS
         private struct CreateVirtualDiskParameters
         {
             public uint Version;
+            // 原生 union 按 8 bytes 對齊；UniqueId 必須從 offset 8 開始，不能緊接 Version。
+            private uint unionAlignmentPadding;
             public Guid UniqueId;
             public ulong MaximumSize;
             public uint BlockSizeInBytes;
@@ -492,27 +520,34 @@ namespace VSRS
 
     internal static class ProcessService
     {
+        // 等待外部程式結束；stdout/stderr 分別非同步讀取，避免管線塞滿造成死鎖。
+        // 兩個事件共享 StringBuilder，必須加鎖。log 回呼不可直接修改 WinForms 控制項。
+        // ExitCode 0 只表示程序回報成功，呼叫端仍須驗證所需檔案或 API 結果。
         public static async Task<CommandResult> RunAsync(string fileName, string arguments, Action<string> log, string workingDirectory = null)
         {
             var output = new StringBuilder();
+            var outputLock = new object(); // stdout/stderr 事件可能由不同執行緒同時呼叫。
             var psi = new ProcessStartInfo(fileName, arguments) {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
                 RedirectStandardError = true, WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(fileName) ?? AppDomain.CurrentDomain.BaseDirectory
             };
             using (var p = new Process { StartInfo = psi, EnableRaisingEvents = true })
             {
-                p.OutputDataReceived += (s, e) => { if (e.Data != null) { output.AppendLine(e.Data); log?.Invoke(e.Data); } };
-                p.ErrorDataReceived += (s, e) => { if (e.Data != null) { output.AppendLine(e.Data); log?.Invoke(e.Data); } };
+                p.OutputDataReceived += (s, e) => { if (e.Data != null) { lock (outputLock) { output.AppendLine(e.Data); } log?.Invoke(e.Data); } };
+                p.ErrorDataReceived += (s, e) => { if (e.Data != null) { lock (outputLock) { output.AppendLine(e.Data); } log?.Invoke(e.Data); } };
                 try
                 {
                     p.Start(); p.BeginOutputReadLine(); p.BeginErrorReadLine();
                     await Task.Run(() => p.WaitForExit());
-                    return new CommandResult { ExitCode = p.ExitCode, Output = output.ToString() };
+                    lock (outputLock)
+                        return new CommandResult { ExitCode = p.ExitCode, Output = output.ToString() };
                 }
                 catch (Exception ex) { log?.Invoke(ex.Message); return new CommandResult { ExitCode = -1, Output = ex.ToString() }; }
             }
         }
 
+        // 保留的 DiskPart 輔助方法；目前差分建立／合併已改用 VirtualDiskService。
+        // 腳本採 Unicode 並在 finally 刪除；不同 PE 的 DiskPart 編碼支援需實機驗證。
         public static async Task<CommandResult> RunDiskPartAsync(IEnumerable<string> commands, Action<string> log)
         {
             string diskPart = Path.Combine(Environment.SystemDirectory, "diskpart.exe");
@@ -543,6 +578,7 @@ namespace VSRS
             finally { try { File.Delete(script); } catch { } }
         }
 
+        // PE 的 TEMP 可能指向不存在或唯讀位置，逐一建立與寫入探測後才使用。
         private static string FindWritableTempDirectory()
         {
             var candidates = new[] {
@@ -578,6 +614,7 @@ namespace VSRS
 
     internal static class ToolLocator
     {
+        // 外部 EXE 固定搜尋 Tools、程式同層、Tools\Ventoy；不依賴系統 PATH。
         public static string Find(string fileName)
         {
             string root = AppDomain.CurrentDomain.BaseDirectory;
