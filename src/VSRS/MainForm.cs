@@ -21,7 +21,6 @@ namespace VSRS
         private readonly TabControl tabs = new TabControl();
         private readonly TextBox log = new TextBox();
         private ComboBox diskBox, volumeBox;
-        private CheckBox allowInternal;
         private TextBox vhdOutput, mergeVhd, copySourceFolder;
         private ComboBox copyTargetVolume;
         private Button installButton, captureButton, createDiffButton, mergeButton, copyButton, autoRestoreButton, manualRestoreButton;
@@ -113,8 +112,7 @@ namespace VSRS
             diskBox = AddCombo(content);
             AddText(content, "會顯示磁碟編號、容量、USB/內接判斷與型號。請以容量及型號再次核對；此操作會清除整顆磁碟。", Color.DarkRed);
             var refresh = AddButton(content, "重新偵測磁碟", 180); refresh.Click += (s, e) => RefreshHardware();
-            allowInternal = new CheckBox { Text = "允許安裝到內接/非 USB 磁碟（GPT、NTFS、NOUSBCheck）", AutoSize = true, Margin = new Padding(3, 8, 3, 8) };
-            content.Controls.Add(allowInternal);
+            AddText(content, "列出 Windows 已辨識的所有實體磁碟，USB／內接分類僅供參考，不限制安裝。", Color.DarkBlue);
             installButton = AddButton(content, "安裝 Ventoy（危險操作）", 260); StyleDangerButton(installButton);
             installButton.Click += async (s, e) => await InstallVentoyAsync();
             return page;
@@ -204,13 +202,12 @@ namespace VSRS
             var disk = diskBox.SelectedItem as DiskInfo;
             if (disk == null) { Warn("請先選擇目標硬碟。"); return; }
             if (disk.IsBootOrSystem) WriteLog("高風險警告：目標磁碟包含 Windows 資料夾，但已允許繼續安裝。");
-            if (!disk.IsUsb && !allowInternal.Checked) { Warn("目標被判定為內接/非 USB 磁碟。若確實要安裝，請先勾選允許選項。"); return; }
             string ventoy = ToolLocator.Find("Ventoy2Disk_X64.exe");
             if (ventoy == null) { Warn("找不到 Ventoy2Disk_X64.exe。請確認它與 Ventoy2Disk.exe 位於程式旁的 Tools\\Ventoy 同一層資料夾。"); return; }
             string typed = Prompt.Show($"即將清除：磁碟 {disk.Number} / {disk.Model} / {disk.SizeText}\r\n請輸入磁碟編號 {disk.Number} 才能繼續：", "最後確認");
             if (typed != disk.Number.ToString()) { WriteLog("使用者取消：確認編號不符。"); return; }
             if (MessageBox.Show("整顆目標磁碟的資料都會消失。確定安裝？", "不可逆警告", MessageBoxButtons.YesNo, MessageBoxIcon.Stop, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            string args = $"VTOYCLI /I /PhyDrive:{disk.Number}" + (!disk.IsUsb ? " /GPT /FS:NTFS /NOUSBCheck" : "");
+            string args = $"VTOYCLI /I /PhyDrive:{disk.Number} /GPT /FS:NTFS /NOUSBCheck";
             WriteLog("Ventoy 安裝參數：" + args);
             await RunBusyAsync(() => ProcessService.RunAsync(ventoy, args, WriteLog));
         }
@@ -700,7 +697,7 @@ namespace VSRS
         {
             try
             {
-                diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks()) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
+                diskBox.Items.Clear(); foreach (var d in HardwareService.GetDisks(WriteLog)) diskBox.Items.Add(d); if (diskBox.Items.Count > 0) diskBox.SelectedIndex = 0;
                 RefreshCaptureVolumes();
                 RefreshCopyTargetVolumes();
                 DetectVentoyHddSource(false);
